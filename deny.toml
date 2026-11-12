@@ -23,8 +23,8 @@ confidence-threshold = 0.8
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-# Workspace path dependencies have no version; allow them.
-allow-wildcard-paths = true
+# Internal path dependencies must also carry a version (see
+# [workspace.dependencies]) so the crates stay publishable.
 
 [sources]
 unknown-registry = "deny"
