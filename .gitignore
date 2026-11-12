@@ -1,0 +1,3 @@
+/target
+# fixture dependency dir is tracked on purpose
+!fixtures/**/node_modules
