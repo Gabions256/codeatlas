@@ -1,88 +1,236 @@
-use std::path::Path;
+//! Terminal interface. Parsing and presentation only: all analysis is in
+//! `atlas-index`.
+
+use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use atlas_domain::AnalysisReport;
+use atlas_index::{Direction, Edge, Index};
+use clap::{Parser, Subcommand, ValueEnum};
 
-// shortcut: fixed skip list, no .gitignore / .codeatlasignore support.
-// Upgrade to the `ignore` crate when atlas-index lands.
-const SKIP_DIRS: &[&str] = &[".git", "node_modules", "target", "dist", "build"];
+#[derive(Parser)]
+#[command(
+    name = "atlas",
+    version,
+    about = "Local, evidence-first code intelligence"
+)]
+struct Cli {
+    /// Project root. Query commands read the index a scan left there.
+    #[arg(long, global = true, default_value = ".")]
+    project: PathBuf,
+    /// Print JSON instead of text.
+    #[arg(long, global = true)]
+    json: bool,
+    #[command(subcommand)]
+    command: Command,
+}
 
-fn scan(root: &Path) -> std::io::Result<AnalysisReport> {
-    let mut files = Vec::new();
-    let mut skipped_files = 0u64;
-    let mut pending = vec![root.to_path_buf()];
+#[derive(Subcommand)]
+enum Command {
+    /// Index a project into PATH/.codeatlas. Reparses only changed files.
+    Scan {
+        /// Project root. Defaults to --project.
+        path: Option<PathBuf>,
+    },
+    /// Query indexed symbols.
+    Symbols {
+        #[command(subcommand)]
+        command: SymbolsCommand,
+    },
+    /// Query call relationships. All links are inferred from names.
+    Graph {
+        #[command(subcommand)]
+        command: GraphCommand,
+    },
+    /// Describe a symbol from indexed evidence. No AI involved.
+    Explain {
+        #[command(subcommand)]
+        command: ExplainCommand,
+    },
+    /// Print a project report to stdout.
+    Report {
+        #[arg(long, value_enum, default_value = "html")]
+        format: Format,
+    },
+}
 
-    while let Some(dir) = pending.pop() {
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            // DirEntry::file_type does not follow symlinks, so links are
-            // neither dirs nor files here and cannot escape the root.
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                if !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref()) {
-                    pending.push(path);
+#[derive(Subcommand)]
+enum SymbolsCommand {
+    /// List symbols, optionally filtered by a name fragment.
+    List {
+        query: Option<String>,
+        /// Function, Method, Class, Struct, Interface, Trait, Module, Enum or TypeAlias.
+        #[arg(long)]
+        kind: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum GraphCommand {
+    /// What a symbol calls. Without a symbol: every call site.
+    Dependencies {
+        /// Name, qualified name or id.
+        symbol: Option<String>,
+        /// Hops to follow.
+        #[arg(long, default_value_t = 1)]
+        depth: u32,
+    },
+    /// What calls a symbol. Without a symbol: every call site.
+    Dependents {
+        /// Name, qualified name or id.
+        symbol: Option<String>,
+        /// Hops to follow.
+        #[arg(long, default_value_t = 1)]
+        depth: u32,
+    },
+}
+
+#[derive(Subcommand)]
+enum ExplainCommand {
+    /// Explain a function or method by name, qualified name or id.
+    Function { name: String },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Format {
+    Html,
+    Json,
+}
+
+fn print_json<T: serde::Serialize>(value: &T) -> atlas_index::Result<()> {
+    println!("{}", serde_json::to_string_pretty(value)?);
+    Ok(())
+}
+
+fn print_edges(edges: &[Edge]) {
+    for e in edges {
+        println!(
+            "{} -> {}  [{}]  {}:{}:{}  ({})",
+            e.from, e.to, e.status, e.path, e.line, e.column, e.note
+        );
+    }
+}
+
+fn run(cli: Cli) -> atlas_index::Result<()> {
+    let root = match &cli.command {
+        Command::Scan { path: Some(path) } => path.clone(),
+        _ => cli.project.clone(),
+    };
+    if !matches!(cli.command, Command::Scan { .. }) && !Index::exists(&root) {
+        return Err(atlas_index::Error(format!(
+            "no index in {}: run `atlas scan` first",
+            root.display()
+        )));
+    }
+    let mut index = Index::open(&root)?;
+
+    match cli.command {
+        Command::Scan { .. } => {
+            let summary = index.scan()?;
+            for warning in &summary.warnings {
+                eprintln!("warning: skipped {warning}");
+            }
+            if cli.json {
+                return print_json(&summary);
+            }
+            println!(
+                "{} file(s) indexed: {} reparsed, {} unchanged, {} removed, {} unsupported",
+                summary.files,
+                summary.reparsed,
+                summary.unchanged,
+                summary.removed,
+                summary.unsupported
+            );
+            println!(
+                "{} symbol(s); {} call site(s), {} linked by name; {} import(s), {} resolved",
+                summary.symbols,
+                summary.calls,
+                summary.calls_inferred,
+                summary.imports,
+                summary.imports_resolved
+            );
+        }
+        Command::Symbols {
+            command: SymbolsCommand::List { query, kind },
+        } => {
+            let symbols = index.symbols(query.as_deref(), kind.as_deref())?;
+            if cli.json {
+                return print_json(&symbols);
+            }
+            for s in &symbols {
+                println!(
+                    "{:<10} {}  {}:{}  {}",
+                    s.kind,
+                    s.qualified_name,
+                    s.path,
+                    s.start_line,
+                    s.signature.as_deref().unwrap_or("")
+                );
+            }
+        }
+        Command::Graph { command } => {
+            let (symbol, depth, direction) = match command {
+                GraphCommand::Dependencies { symbol, depth } => {
+                    (symbol, depth, Direction::Dependencies)
                 }
-                continue;
-            }
-            if !file_type.is_file() {
-                continue;
-            }
-            let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let Some(adapter) = atlas_parser::adapter_for(extension) else {
-                skipped_files += 1;
-                continue;
+                GraphCommand::Dependents { symbol, depth } => {
+                    (symbol, depth, Direction::Dependents)
+                }
             };
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let analysis = std::fs::read_to_string(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|src| adapter.analyze(&relative, &src).map_err(|e| e.to_string()));
-            match analysis {
-                Ok(a) => files.push(a),
-                Err(e) => {
-                    eprintln!("warning: skipped {relative}: {e}");
-                    skipped_files += 1;
+            let edges = index.graph(symbol.as_deref(), direction, depth)?;
+            if cli.json {
+                return print_json(&edges);
+            }
+            print_edges(&edges);
+        }
+        Command::Explain {
+            command: ExplainCommand::Function { name },
+        } => {
+            let explanations = index.explain_function(&name)?;
+            if explanations.is_empty() {
+                return Err(atlas_index::Error(format!(
+                    "no function or method named `{name}` in the index"
+                )));
+            }
+            if cli.json {
+                return print_json(&explanations);
+            }
+            for e in &explanations {
+                println!("{}\n", e.summary);
+                if let Some(signature) = &e.symbol.signature {
+                    println!("Signature: {signature}");
                 }
+                println!(
+                    "Source:    {}:{}-{}",
+                    e.symbol.path, e.symbol.start_line, e.symbol.end_line
+                );
+                println!("\nCalls:");
+                print_edges(&e.calls);
+                println!("\nCalled from:");
+                print_edges(&e.called_by);
+                println!("\nLimitations:");
+                for limitation in &e.limitations {
+                    println!("- {limitation}");
+                }
+                println!();
+            }
+        }
+        Command::Report { format } => {
+            let report = index.report()?;
+            match format {
+                Format::Json => return print_json(&report),
+                Format::Html => print!("{}", atlas_index::render_html(&report)),
             }
         }
     }
-
-    // read_dir order is platform-dependent; sort for reproducible reports.
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(AnalysisReport {
-        engine_version: env!("CARGO_PKG_VERSION").to_string(),
-        root: root.to_string_lossy().into_owned(),
-        generated_at_unix: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs()),
-        files,
-        skipped_files,
-    })
+    Ok(())
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let [command, path] = args.as_slice() else {
-        eprintln!("usage: atlas scan <path>");
-        return ExitCode::from(2);
-    };
-    if command != "scan" {
-        eprintln!("unknown command `{command}`\nusage: atlas scan <path>");
-        return ExitCode::from(2);
-    }
-    match scan(Path::new(path)) {
-        Ok(report) => {
-            // Serializing plain structs of strings and integers cannot fail.
-            println!("{}", serde_json::to_string_pretty(&report).unwrap());
-            ExitCode::SUCCESS
-        }
+    // clap exits with code 2 on usage errors.
+    match run(Cli::parse()) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: cannot scan {path}: {e}");
+            eprintln!("error: {e}");
             ExitCode::FAILURE
         }
     }
@@ -91,47 +239,10 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atlas_domain::{ParseStatus, SymbolKind};
 
     #[test]
-    fn scans_sample_repository() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/typescript/sample");
-        let report = scan(&root).unwrap();
-
-        let paths: Vec<_> = report.files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, ["src/broken.ts", "src/cart.ts"]);
-        // README.md has no adapter; node_modules is never entered.
-        assert_eq!(report.skipped_files, 1);
-
-        let broken = &report.files[0];
-        assert_eq!(broken.parse_status, ParseStatus::ParsedWithErrors);
-
-        let cart = &report.files[1];
-        assert_eq!(cart.parse_status, ParseStatus::Parsed);
-        assert_eq!(cart.imports[0].source, "./types");
-        let symbols: Vec<_> = cart
-            .symbols
-            .iter()
-            .map(|s| (s.qualified_name.as_str(), s.kind, s.range.start_line))
-            .collect();
-        assert_eq!(
-            symbols,
-            [
-                ("Cart", SymbolKind::Interface, 3),
-                ("Total", SymbolKind::TypeAlias, 5),
-                ("Status", SymbolKind::Enum, 7),
-                ("handleCheckout", SymbolKind::Function, 9),
-                ("applyDiscount", SymbolKind::Function, 13),
-                ("CartService", SymbolKind::Class, 15),
-                ("CartService.add", SymbolKind::Method, 16),
-            ]
-        );
-
-        // The report round-trips through JSON unchanged.
-        let json = serde_json::to_string(&report).unwrap();
-        assert_eq!(
-            serde_json::from_str::<AnalysisReport>(&json).unwrap(),
-            report
-        );
+    fn command_line_definition_is_consistent() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
     }
 }
