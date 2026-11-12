@@ -19,7 +19,8 @@ pre{background:#f4f4f4;padding:.5rem;overflow-x:auto}table{border-collapse:colla
 td,th{border:1px solid #ccc;padding:.25rem .5rem;text-align:left;vertical-align:top}\
 section{border-top:1px solid #ccc;margin-top:2rem}.sym{margin:1rem 0 1rem 1rem}\
 .tag{font-size:12px;border:1px solid #888;border-radius:3px;padding:0 .3rem}\
-.note{background:#fff8e1;padding:.5rem 1rem}.dim{color:#555}";
+.note{background:#fff8e1;padding:.5rem 1rem}.dim{color:#555}\
+h2 code,h3 code{font-size:inherit}h3 .dim,h3 .tag{font-size:13px;font-weight:normal}";
 
 fn edge_item(edge: &Edge, outgoing: bool) -> String {
     let (id, name) = if outgoing {
