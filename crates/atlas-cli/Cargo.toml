@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+description = "Local code intelligence: index a project and see every symbol, call and import with its evidence."
 
 [[bin]]
 name = "atlas"
@@ -17,3 +19,14 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+# `cargo binstall --git https://github.com/Gabions256/codeatlas atlas-cli`
+# downloads the release archive instead of compiling. Names must match the
+# Package step in .github/workflows/release.yml.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/atlas-v{ version }-{ target }{ archive-suffix }"
+bin-dir = "atlas-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

@@ -81,6 +81,12 @@ pub struct Symbol {
     pub signature: Option<String>,
     /// Parameter source text, one entry per parameter.
     pub parameters: Vec<String>,
+    /// Hash of the declaration text before redaction, so a change to a
+    /// redacted default still counts as a signature change. Kept in memory
+    /// only: never serialized or stored, so it cannot be used to guess the
+    /// hidden value from the index.
+    #[serde(skip)]
+    pub signature_digest: Option<String>,
     /// Script: an `export` names this symbol. Rust: it has a `pub` modifier,
     /// which says nothing about whether it is reachable from outside.
     /// `None` when the syntax cannot tell: nested symbols, Python, and

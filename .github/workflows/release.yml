@@ -2,72 +2,105 @@ name: release
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  # Dry run on pull requests that touch the release: build, test and package
+  # every target, publish nothing.
+  pull_request:
+    paths: [".github/workflows/release.yml", "Cargo.toml", "Cargo.lock"]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Check tag matches workspace version
-        shell: bash
-        run: |
-          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}"
-            exit 1
-          fi
-      - name: Create draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
-
   build:
-    needs: create-release
     name: build (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Statically linked: runs on any x86_64 Linux, whatever its glibc.
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-unknown-linux-musl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
+          # Intel Macs. Cross-compiled on the Apple Silicon runner, so the
+          # tests and the smoke test run as arm64, not on this binary.
+          - os: macos-latest
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Read version, check tag
+        shell: bash
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${version}"
+            exit 1
+          fi
       - run: rustup toolchain install
+      - run: rustup target add ${{ matrix.target }}
+      - if: contains(matrix.target, 'musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo test --workspace --locked
       - run: cargo build --release --locked -p atlas-cli --target ${{ matrix.target }}
+      - name: Smoke test the built binary
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          atlas="target/${{ matrix.target }}/release/atlas"
+          "$atlas" --version
+          "$atlas" scan fixtures/typescript/sample
+          "$atlas" --project fixtures/typescript/sample report --format html | grep -q "CodeAtlas report"
       - name: Package
         shell: bash
         run: |
-          name="atlas-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          name="atlas-v${VERSION}-${{ matrix.target }}"
           mkdir "$name"
-          cp LICENSE README.md "$name/"
+          cp LICENSE README.md CHANGELOG.md "$name/"
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp "target/${{ matrix.target }}/release/atlas.exe" "$name/"
             7z a "$name.zip" "$name"
-            echo "ASSET=$name.zip" >> "$GITHUB_ENV"
+            asset="$name.zip"
           else
             cp "target/${{ matrix.target }}/release/atlas" "$name/"
             tar czf "$name.tar.gz" "$name"
-            echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
+            asset="$name.tar.gz"
           fi
-      - name: Checksum
-        shell: bash
-        run: |
-          if command -v sha256sum >/dev/null; then sha256sum "$ASSET" > "$ASSET.sha256"
-          else shasum -a 256 "$ASSET" > "$ASSET.sha256"; fi
-      - name: Upload
-        shell: bash
+          if command -v sha256sum >/dev/null; then sha256sum "$asset" > "$asset.sha256"
+          else shasum -a 256 "$asset" > "$asset.sha256"; fi
+          mkdir dist && mv "$asset" "$asset.sha256" dist/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+
+  # Runs only for a tag, and only after every target built and passed.
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create draft release with all assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" "$ASSET" "$ASSET.sha256" --clobber
+          GH_REPO: ${{ github.repository }}
+        # A version with a suffix (0.1.0-rc.1) is marked as a pre-release.
+        # The release stays a draft until it is reviewed and published by hand.
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --draft $prerelease --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes "See CHANGELOG.md for what changed. Binaries are not code-signed."

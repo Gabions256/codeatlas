@@ -44,6 +44,9 @@ struct SyntaxAdapter {
     capabilities: Capabilities,
 }
 
+/// Replaces string literals in parameter defaults, which can hold secrets.
+pub const REDACTED: &str = "\"<redacted>\"";
+
 const CALLS: &str = "inferred from a unique name match; never verified";
 
 static TYPESCRIPT: SyntaxAdapter = SyntaxAdapter {
@@ -437,10 +440,10 @@ impl<'a> Walk<'a> {
         }
         let id = fnv1a_hex(key.as_bytes());
 
-        let (signature, parameters) = if matches!(kind, Function | Method) {
+        let (signature, parameters, signature_digest) = if matches!(kind, Function | Method) {
             self.signature(node)
         } else {
-            (None, Vec::new())
+            (None, Vec::new(), None)
         };
 
         self.out.symbols.push(Symbol {
@@ -450,6 +453,7 @@ impl<'a> Walk<'a> {
             kind,
             signature,
             parameters,
+            signature_digest,
             exported: self.exported(node),
             range: range(node),
         });
@@ -461,7 +465,7 @@ impl<'a> Walk<'a> {
         });
     }
 
-    fn signature(&self, node: Node) -> (Option<String>, Vec<String>) {
+    fn signature(&self, node: Node) -> (Option<String>, Vec<String>, Option<String>) {
         // For `const f = () => ...` the function is the declarator's value.
         let function = if node.kind() == "variable_declarator" {
             node.child_by_field_name("value").unwrap_or(node)
@@ -471,21 +475,33 @@ impl<'a> Walk<'a> {
         let end = function
             .child_by_field_name("body")
             .map_or(node.end_byte(), |body| body.start_byte());
-        let signature = std::str::from_utf8(&self.src[node.start_byte()..end])
-            .ok()
-            .map(|text| {
-                let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
-                let trimmed = one_line.trim_end_matches("=>").trim_end();
-                let trimmed = trimmed.trim_end_matches(['{', ':']).trim_end();
-                // Cap pathological declarations; 300 chars covers real ones.
-                trimmed.chars().take(300).collect::<String>()
-            });
+        let params = function.child_by_field_name("parameters");
+        let secrets = match params {
+            Some(p) if !p.has_error() => self.secret_spans(p),
+            // A broken parameter list (often an unterminated string) cannot
+            // be split reliably: hide everything from its first quote on.
+            Some(p) => self.after_first_quote(p.start_byte(), p.end_byte()),
+            None => self.after_first_quote(node.start_byte(), end),
+        };
+        let signature = self.redacted(node.start_byte(), end, &secrets).map(|text| {
+            let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            let trimmed = one_line.trim_end_matches("=>").trim_end();
+            let trimmed = trimmed.trim_end_matches(['{', ':']).trim_end();
+            // Cap pathological declarations; 300 chars covers real ones.
+            trimmed.chars().take(300).collect::<String>()
+        });
+        let digest = self.src.get(node.start_byte()..end).map(|raw| {
+            let words: Vec<&[u8]> = raw
+                .split(u8::is_ascii_whitespace)
+                .filter(|w| !w.is_empty())
+                .collect();
+            fnv1a_hex(&words.join(&b' '))
+        });
 
-        let parameters = if let Some(list) = function.child_by_field_name("parameters") {
+        let parameters = if let Some(list) = params {
             list.named_children(&mut list.walk())
                 .filter(|p| !p.kind().contains("comment"))
-                .filter_map(|p| self.text(p))
-                .map(str::to_string)
+                .filter_map(|p| self.redacted(p.start_byte(), p.end_byte(), &secrets))
                 .collect()
         } else {
             // `x => x` has a single bare parameter.
@@ -494,7 +510,74 @@ impl<'a> Walk<'a> {
                 .into_iter()
                 .collect()
         };
-        (signature, parameters)
+        (signature, parameters, digest)
+    }
+
+    /// Byte spans inside a parameter list that must never be stored: every
+    /// string literal outside a type annotation, plus anything the parser
+    /// could not read (an unterminated string lands in an error node).
+    /// Default values can hold API keys and passwords.
+    fn secret_spans(&self, params: Node) -> Vec<(usize, usize)> {
+        let mut spans = Vec::new();
+        let mut stack = vec![params];
+        while let Some(node) = stack.pop() {
+            let kind = node.kind();
+            if matches!(kind, "type_annotation" | "type" | "literal_type") {
+                continue;
+            }
+            if node.is_error()
+                || matches!(
+                    kind,
+                    "string"
+                        | "template_string"
+                        | "concatenated_string"
+                        | "string_literal"
+                        | "raw_string_literal"
+                )
+            {
+                spans.push((node.start_byte(), node.end_byte()));
+                continue;
+            }
+            let mut cursor = node.walk();
+            stack.extend(node.children(&mut cursor));
+        }
+        spans.sort_unstable();
+        spans
+    }
+
+    /// Fallback when the syntax tree cannot be trusted: one span from the
+    /// first quote character in `start..end` to the end (keeping a closing
+    /// parenthesis so the signature still reads as one).
+    fn after_first_quote(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
+        let Some(slice) = self.src.get(start..end) else {
+            return Vec::new();
+        };
+        let Some(first) = slice.iter().position(|b| matches!(b, b'"' | b'\'' | b'`')) else {
+            return Vec::new();
+        };
+        let stop = if slice.last() == Some(&b')') {
+            end - 1
+        } else {
+            end
+        };
+        vec![(start + first, stop.max(start + first))]
+    }
+
+    /// Source text of `start..end` with every span in `secrets` replaced by
+    /// a fixed marker.
+    fn redacted(&self, start: usize, end: usize, secrets: &[(usize, usize)]) -> Option<String> {
+        let mut out = String::new();
+        let mut at = start;
+        for &(from, to) in secrets {
+            if to <= at || from >= end {
+                continue;
+            }
+            out.push_str(std::str::from_utf8(self.src.get(at..from.max(at))?).ok()?);
+            out.push_str(REDACTED);
+            at = to.min(end);
+        }
+        out.push_str(std::str::from_utf8(self.src.get(at..end)?).ok()?);
+        Some(out)
     }
 
     fn exported(&self, node: Node) -> Option<bool> {
@@ -846,6 +929,77 @@ mod tests {
             "fn h() -> u32 { 1 }\nfn main() { println!(\"{}\", h()); }\n",
         );
         assert!(a.calls.is_empty());
+    }
+
+    fn leaks(a: &FileAnalysis, secret: &str) -> bool {
+        a.symbols.iter().any(|s| {
+            s.signature.as_deref().is_some_and(|t| t.contains(secret))
+                || s.parameters.iter().any(|p| p.contains(secret))
+        })
+    }
+
+    #[test]
+    fn python_string_defaults_are_redacted() {
+        let a = analyze_as(
+            "a.py",
+            "def f(api_key=\"sk-live-123\", tip=0, *, mode=f'x{1}', b=b'raw', n=None):\n    pass\n\
+             def g(t: Literal[\"a\"] = 'sk-live-123'):\n    pass\n",
+        );
+        assert!(!leaks(&a, "sk-live-123"));
+        let f = &a.symbols[0];
+        assert_eq!(
+            f.signature.as_deref(),
+            Some(
+                "def f(api_key=\"<redacted>\", tip=0, *, mode=\"<redacted>\", \
+                 b=\"<redacted>\", n=None)"
+            )
+        );
+        assert_eq!(f.parameters[0], "api_key=\"<redacted>\"");
+        assert_eq!(f.parameters[1], "tip=0");
+        // The type annotation is not a default and stays readable.
+        assert_eq!(
+            a.symbols[1].parameters,
+            ["t: Literal[\"a\"] = \"<redacted>\""]
+        );
+    }
+
+    #[test]
+    fn script_string_defaults_are_redacted() {
+        for file in ["a.ts", "a.js"] {
+            let a = analyze_as(
+                file,
+                "function f(token = \"sk-live-123\", n = 2) { return n; }\n\
+                 const g = (k = 'sk-live-123') => k;\n\
+                 class C { m(t = `sk-live-123${1}`) {} }\n",
+            );
+            assert!(!leaks(&a, "sk-live-123"), "{file}");
+            assert_eq!(
+                a.symbols[0].signature.as_deref(),
+                Some("function f(token = \"<redacted>\", n = 2)"),
+                "{file}"
+            );
+            assert_eq!(a.symbols[1].parameters, ["k = \"<redacted>\""], "{file}");
+        }
+        // TypeScript literal types are types, not defaults.
+        let a = analyze_as("a.ts", "function h(m: \"on\" | \"off\" = \"on\") {}\n");
+        assert_eq!(
+            a.symbols[0].parameters,
+            ["m: \"on\" | \"off\" = \"<redacted>\""]
+        );
+    }
+
+    #[test]
+    fn malformed_string_defaults_do_not_leak() {
+        for (file, src) in [
+            ("a.py", "def f(key=\"sk-live-123):\n    pass\n"),
+            ("a.py", "def f(key='sk-live-123', x=):\n    pass\n"),
+            ("a.ts", "function f(key = \"sk-live-123) { }\n"),
+            ("a.js", "function f(key = 'sk-live-123', ) { return }}\n"),
+            ("a.rs", "fn f(key: &str = \"sk-live-123\") {}\n"),
+        ] {
+            let a = analyze_as(file, src);
+            assert!(!leaks(&a, "sk-live-123"), "{file}: {:?}", a.symbols);
+        }
     }
 
     #[test]

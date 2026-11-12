@@ -204,3 +204,30 @@ fn rejects_bad_bases() {
     assert!(message("").contains("invalid --base"));
     assert!(message("no-such-branch").contains("is not a commit"));
 }
+
+/// A change to a redacted string default is still a signature change, and
+/// neither value reaches the report.
+#[test]
+fn changed_redacted_default_is_a_signature_change() {
+    let root = repo(
+        "redacted-default",
+        &[("pay.py", "def pay(key=\"sk-old-111\"):\n    return 1\n")],
+    );
+    write(
+        &root,
+        "pay.py",
+        "def pay(key=\"sk-new-222\"):\n    return 1\n",
+    );
+    let mut index = Index::open(&root).unwrap();
+    let report = index.changes("HEAD", 1).unwrap();
+    assert_eq!(
+        summary(&report),
+        [(
+            "pay.py",
+            "modified",
+            vec![("pay", Change::SignatureChanged)]
+        )]
+    );
+    let json = serde_json::to_string(&report).unwrap();
+    assert!(!json.contains("sk-old-111") && !json.contains("sk-new-222"));
+}

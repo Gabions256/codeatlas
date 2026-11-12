@@ -2,7 +2,25 @@
 
 Open-source code intelligence for understanding, exploring and verifying software built by humans and AI agents.
 
-Status: Milestone 1.4. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
+Status: Milestone 1.5, first public release (0.1.0). A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
+
+## Install
+
+Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon and Intel) are attached to each [GitHub release](https://github.com/Gabions256/codeatlas/releases). Download the archive, unpack it and put `atlas` on your `PATH`.
+
+    # Any platform with Rust: downloads the release binary
+    cargo binstall --git https://github.com/Gabions256/codeatlas atlas-cli
+
+    # Any platform with Rust: builds from source (needs a C compiler)
+    cargo install --git https://github.com/Gabions256/codeatlas atlas-cli
+
+Each archive has a `.sha256` file next to it. Check it before running the binary, for example `sha256sum -c atlas-v0.1.0-x86_64-unknown-linux-musl.tar.gz.sha256`.
+
+The Linux binary is statically linked (musl), so it runs on any x86_64 distribution.
+
+The binaries are not code-signed. Windows SmartScreen and macOS Gatekeeper may warn the first time you run `atlas`. On macOS, `xattr -d com.apple.quarantine ./atlas` removes the warning for a binary you downloaded and trust.
+
+The command is called `atlas`. Other tools (for example a database schema tool) also install an `atlas` command; if you have one, the first on your `PATH` wins.
 
 ## Use
 
@@ -20,6 +38,10 @@ From a checkout, replace `atlas` with `cargo run -p atlas-cli --`. Add `--json` 
 `scan` honours `.gitignore` files and a `.codeatlasignore` file (same syntax) anywhere inside the project. Ignore files above the project root, global git excludes and `.git/info/exclude` are not read, so the same tree indexes the same way on every machine. `.git`, `.codeatlas`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv` are always skipped, even if an ignore file re-includes them. A malformed ignore rule is reported as a warning and not applied.
 
 `scan` writes its index to `<project>/.codeatlas/index.db`. That folder ignores itself in git. A rescan reparses only files whose content changed. Nothing else in the project is touched.
+
+A folder or file that cannot be read (for example, no permission) is skipped with a warning, and the summary says the index is incomplete (`skipped` in JSON). An unreadable project root is an error.
+
+String default values in signatures are replaced with `"<redacted>"`, before anything is stored, so an API key written as `def f(key="sk-...")` does not reach the index or the reports. Literal types (`m: "on" | "off"`) and other defaults (`tip=0`, `None`) are shown as written. A secret in a numeric default is not hidden. Call names and import paths are stored as written.
 
 ## What changed, and what it may affect
 
@@ -71,11 +93,11 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 ## Not done yet
 
 - Rust calls written inside macros (`println!("{}", f())`, `assert!(g())`) are not seen at all: macro arguments are not parsed as code.
-- Python `K()` is not linked to class `K`. Generic Rust calls `f::<T>()` and computed callees are not recorded.
+- Python `K()` is not linked to class `K`: it stays `Unresolved`. Generic Rust calls `f::<T>()` and computed callees are not recorded.
 - No Rust or Python import resolution. No `require()`, CommonJS exports, re-exports or path aliases.
 - No type references, inheritance, or data flow.
 - No documentation comments.
-- No secret redaction: signatures are copied verbatim, including default values.
+- No Homebrew, winget or crates.io packages. Binaries are not code-signed, and there is no Linux ARM or Windows ARM build.
 - No AI explanations, MCP server or desktop app.
 - No test coverage: nothing says whether changed code is tested.
 
@@ -91,8 +113,8 @@ Design decisions are in [docs/adr](docs/adr).
 ## Develop
 
     cargo fmt --all --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo test --workspace
+    cargo clippy --workspace --all-targets --locked -- -D warnings
+    cargo test --workspace --locked
 
 A C compiler is required: the Tree-sitter grammars and SQLite are built from source. On Windows with a long checkout path, set `CARGO_TARGET_DIR` to a short path.
 
@@ -100,6 +122,11 @@ Minimum supported Rust version (MSRV): 1.90, set by `rust-version` in `Cargo.tom
 
 ## Release
 
-Bump `version` under `[workspace.package]` in `Cargo.toml`, merge, then push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The release workflow creates a draft GitHub release with `atlas` binaries for Linux x86_64, Windows x86_64 and macOS arm64, plus SHA-256 checksums. Review and publish the draft by hand.
+1. Bump `version` under `[workspace.package]` in `Cargo.toml` and the three internal versions under `[workspace.dependencies]`, and add a `CHANGELOG.md` entry. Merge.
+2. Push a matching tag: `git tag v0.2.0 && git push origin v0.2.0`. A version with a suffix (`0.2.0-rc.1`) becomes a pre-release.
+3. The release workflow tests, builds and smoke-tests `atlas` for Linux x86_64 (static), Windows x86_64, macOS arm64 and macOS x86_64. Only when all four pass does it create a **draft** release with the archives and SHA-256 files.
+4. Review the draft on GitHub and publish it by hand.
+
+Pull requests that change `release.yml`, `Cargo.toml` or `Cargo.lock` run the same build as a dry run, without publishing.
 
 Licence: Apache-2.0.
