@@ -2,7 +2,7 @@
 
 Open-source code intelligence for understanding, exploring and verifying software built by humans and AI agents.
 
-Status: Milestone 1.1. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
+Status: Milestone 1.2. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
 
 ## Use
 
@@ -15,6 +15,8 @@ Status: Milestone 1.1. A local engine that indexes a project, links calls and im
     atlas report --format html > report.html
 
 From a checkout, replace `atlas` with `cargo run -p atlas-cli --`. Add `--json` to any command for machine-readable output, and `--project <path>` to query a project from elsewhere.
+
+`scan` honours `.gitignore` files and a `.codeatlasignore` file (same syntax) anywhere inside the project. Ignore files above the project root, global git excludes and `.git/info/exclude` are not read, so the same tree indexes the same way on every machine. `.git`, `.codeatlas`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv` are always skipped, even if an ignore file re-includes them. A malformed ignore rule is reported as a warning and not applied.
 
 `scan` writes its index to `<project>/.codeatlas/index.db`. That folder ignores itself in git. A rescan reparses only files whose content changed. Nothing else in the project is touched.
 
@@ -41,7 +43,6 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 
 ## Not done yet
 
-- `.gitignore` and `.codeatlasignore` are not read. `.git`, `.codeatlas`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv` are skipped.
 - No Rust or Python import resolution. No `require()`, re-exports or path aliases.
 - No type references, inheritance, or data flow.
 - No documentation comments.
