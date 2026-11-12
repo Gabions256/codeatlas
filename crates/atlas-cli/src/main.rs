@@ -176,11 +176,17 @@ fn run(cli: Cli) -> atlas_index::Result<()> {
                     (symbol, depth, Direction::Dependents)
                 }
             };
-            let edges = index.graph(symbol.as_deref(), direction, depth)?;
+            let graph = index.graph(symbol.as_deref(), direction, depth)?;
             if cli.json {
-                return print_json(&edges);
+                return print_json(&graph);
             }
-            print_edges(&edges);
+            print_edges(&graph.edges);
+            if graph.truncated {
+                println!(
+                    "(cut at {} edges: more exist. Lower --depth or query a narrower symbol.)",
+                    graph.edges.len()
+                );
+            }
         }
         Command::Explain {
             command: ExplainCommand::Function { name },

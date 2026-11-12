@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use atlas_domain::{fnv1a_hex, Capabilities, FileAnalysis};
+use atlas_domain::{fnv1a_hex, Capabilities, Evidence, FileAnalysis};
 use atlas_parser::LanguageAdapter;
 use rusqlite::{params, Connection, Row, Transaction};
 use serde::Serialize;
@@ -65,7 +65,8 @@ const SKIP_DIRS: &[&str] = &[
 const INDEX_DIR: &str = ".codeatlas";
 /// Project-specific ignore file, same syntax as `.gitignore`.
 pub const IGNORE_FILE: &str = ".codeatlasignore";
-const SCHEMA_VERSION: i64 = 1;
+// 2: export detection and call forms changed, so every file must be reparsed.
+const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
 DROP TABLE IF EXISTS diagnostics;
@@ -155,8 +156,11 @@ pub struct SymbolRow {
     pub parameters: Vec<String>,
     pub exported: Option<bool>,
     pub path: String,
+    pub language: String,
     pub start_line: u32,
     pub end_line: u32,
+    /// Always `Syntax`: the declaration exists at this position.
+    pub evidence: Evidence,
 }
 
 /// One call site. `path:line:column` is the evidence for it.
@@ -169,12 +173,23 @@ pub struct Edge {
     pub to: String,
     /// `Inferred` or `Unresolved`. Never observed at runtime.
     pub status: String,
+    /// `Inferred` when linked to a symbol. `Syntax` when unresolved: the
+    /// only claim left is that the call is written here.
+    pub evidence: Evidence,
     pub note: String,
     pub path: String,
     pub line: u32,
     pub column: u32,
     /// Hops from the queried symbol, starting at 1.
     pub depth: u32,
+}
+
+/// Result of a graph query.
+#[derive(Debug, Serialize)]
+pub struct Graph {
+    pub edges: Vec<Edge>,
+    /// More edges matched than the limit; the rest were left out.
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +220,9 @@ pub struct ImportRow {
     pub line: u32,
     /// Project file the specifier resolves to, when the adapter can tell.
     pub resolved_path: Option<String>,
+    /// `StaticAnalysis` when resolved: matched by file-path convention,
+    /// without reading tsconfig paths or package exports. Else `Syntax`.
+    pub evidence: Evidence,
 }
 
 #[derive(Debug, Serialize)]
@@ -238,11 +256,13 @@ const LIMITATIONS: &[&str] = &[
     "Structure only: no AI provider is configured, so this does not say what the code does.",
     "Calls are linked by name. `Inferred` means exactly one candidate matched, not that it runs.",
     "`Unresolved` calls may target libraries, built-ins, or code reached dynamically.",
+    "`x.f()` is linked only when the receiver is `this` or `self`. Other member calls stay `Unresolved`.",
+    "Rust calls written inside macros (`println!`, `assert!`, ...) are not seen at all.",
     "Callers that use dynamic dispatch, reflection or string lookups are not found.",
 ];
 
 const SYMBOL_SELECT: &str = "SELECT s.id, s.name, s.qualified_name, s.kind, s.signature, \
-     s.parameters, s.exported, f.path, s.start_line, s.end_line \
+     s.parameters, s.exported, f.path, s.start_line, s.end_line, f.language \
      FROM symbols s JOIN files f ON f.id = s.file_id";
 
 const EDGE_SELECT: &str = "SELECT c.caller_id, COALESCE(cs.qualified_name, '<file scope>'), \
@@ -394,10 +414,16 @@ impl Index {
         let sql = format!("{EDGE_SELECT} WHERE {filter} ORDER BY f.path, c.line, c.col");
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([id], |r| {
+            let to_id: Option<String> = r.get(2)?;
             Ok(Edge {
                 from_id: r.get(0)?,
                 from: r.get(1)?,
-                to_id: r.get(2)?,
+                evidence: if to_id.is_some() {
+                    Evidence::Inferred
+                } else {
+                    Evidence::Syntax
+                },
+                to_id,
                 to: r.get(3)?,
                 status: r.get(4)?,
                 note: r.get(5)?,
@@ -412,14 +438,12 @@ impl Index {
 
     /// Call edges. With no symbol: every call site in the project. With a
     /// symbol: what it calls (or what calls it), followed up to `depth` hops.
-    pub fn graph(
-        &self,
-        symbol: Option<&str>,
-        direction: Direction,
-        depth: u32,
-    ) -> Result<Vec<Edge>> {
+    pub fn graph(&self, symbol: Option<&str>, direction: Direction, depth: u32) -> Result<Graph> {
         let Some(name) = symbol else {
-            return self.edges("?1 IS NULL", None, 1);
+            return Ok(Graph {
+                edges: self.edges("?1 IS NULL", None, 1)?,
+                truncated: false,
+            });
         };
         let roots = self.find(name)?;
         if roots.is_empty() {
@@ -436,6 +460,12 @@ impl Index {
             let mut next = Vec::new();
             for id in &frontier {
                 for edge in self.edges(filter, Some(id), level)? {
+                    if out.len() == MAX_EDGES {
+                        return Ok(Graph {
+                            edges: out,
+                            truncated: true,
+                        });
+                    }
                     let onward = match direction {
                         Direction::Dependencies => edge.to_id.clone(),
                         Direction::Dependents => edge.from_id.clone(),
@@ -446,9 +476,6 @@ impl Index {
                         }
                     }
                     out.push(edge);
-                    if out.len() >= MAX_EDGES {
-                        return Ok(out);
-                    }
                 }
             }
             if next.is_empty() {
@@ -456,7 +483,10 @@ impl Index {
             }
             frontier = next;
         }
-        Ok(out)
+        Ok(Graph {
+            edges: out,
+            truncated: false,
+        })
     }
 
     /// Deterministic, evidence-only description of each function or method
@@ -516,10 +546,16 @@ impl Index {
                 .collect::<rusqlite::Result<_>>()?;
             file.imports = imports
                 .query_map([id], |r| {
+                    let resolved_path: Option<String> = r.get(2)?;
                     Ok(ImportRow {
                         source: r.get(0)?,
                         line: r.get(1)?,
-                        resolved_path: r.get(2)?,
+                        evidence: if resolved_path.is_some() {
+                            Evidence::StaticAnalysis
+                        } else {
+                            Evidence::Syntax
+                        },
+                        resolved_path,
                     })
                 })?
                 .collect::<rusqlite::Result<_>>()?;
@@ -570,15 +606,25 @@ fn symbol_row(r: &Row) -> rusqlite::Result<SymbolRow> {
         path: r.get(7)?,
         start_line: r.get(8)?,
         end_line: r.get(9)?,
+        language: r.get(10)?,
+        evidence: Evidence::Syntax,
+    })
+}
+
+/// Wording for `exported`. Rust's flag only says a modifier is present.
+pub(crate) fn visibility(language: &str, exported: Option<bool>) -> Option<&'static str> {
+    Some(match (language, exported?) {
+        ("rust", true) => "has a `pub` modifier",
+        ("rust", false) => "no `pub` modifier",
+        (_, true) => "exported",
+        (_, false) => "not exported",
     })
 }
 
 fn summarize(symbol: &SymbolRow, calls: &[Edge], called_by: &[Edge]) -> String {
-    let visibility = match symbol.exported {
-        Some(true) => ", exported",
-        Some(false) => ", not exported",
-        None => "",
-    };
+    let visibility = visibility(&symbol.language, symbol.exported)
+        .map(|v| format!(", {v}"))
+        .unwrap_or_default();
     let mut text = format!(
         "`{}` ({}{visibility}) is declared in {} at lines {}-{}.",
         symbol.qualified_name,
@@ -813,7 +859,7 @@ fn resolve(tx: &Transaction) -> Result<()> {
     {
         let mut stmt = tx.prepare(
             "SELECT s.name, s.id, s.kind, s.file_id, f.language FROM symbols s \
-             JOIN files f ON f.id = s.file_id WHERE s.kind IN ('Function', 'Method')",
+             JOIN files f ON f.id = s.file_id WHERE s.kind IN ('Function', 'Method', 'Class')",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
@@ -869,14 +915,26 @@ fn pick<'a>(
     family: &str,
     form: &str,
 ) -> (Option<&'a str>, String) {
+    const NO_SYMBOL: &str = "no project symbol with this name (library, built-in or dynamic)";
+    let named = named.iter().filter(|c| c.family == family);
+    if form == "Member" {
+        // `x.f()`: without the type of `x`, a name match is too weak to
+        // report. `console.log()` would link to any project `log` method.
+        let methods = named.filter(|c| c.kind == "Method").count();
+        let note = if methods == 0 {
+            NO_SYMBOL.to_string()
+        } else {
+            format!("receiver is not this/self, so not linked: {methods} method(s) have this name")
+        };
+        return (None, note);
+    }
     let fits: Vec<&Candidate> = named
-        .iter()
-        .filter(|c| c.family == family)
         .filter(|c| match form {
             "Bare" => c.kind == "Function",
-            "Member" => c.kind == "Method",
+            "SelfMember" => c.kind == "Method",
+            "New" => c.kind == "Class",
             // `a::f()` may be a module function or an associated function.
-            _ => true,
+            _ => c.kind != "Class",
         })
         .collect();
     let local: Vec<&Candidate> = fits
@@ -897,10 +955,7 @@ fn pick<'a>(
             Some(one.id.as_str()),
             "only symbol with this name in the project".to_string(),
         ),
-        ([], []) => (
-            None,
-            "no project symbol with this name (library, built-in or dynamic)".to_string(),
-        ),
+        ([], []) => (None, NO_SYMBOL.to_string()),
         ([], _) => (
             None,
             format!("ambiguous: {} candidates in the project", fits.len()),
