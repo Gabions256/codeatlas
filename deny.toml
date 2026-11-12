@@ -1,0 +1,32 @@
+# cargo-deny configuration. Run locally with: cargo deny check
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[advisories]
+# RustSec advisories: vulnerabilities fail the check; unmaintained crates
+# are reported for direct and transitive dependencies alike.
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Licences compatible with distributing CodeAtlas under Apache-2.0.
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Internal path dependencies must also carry a version (see
+# [workspace.dependencies]) so the crates stay publishable.
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
