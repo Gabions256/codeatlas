@@ -440,10 +440,10 @@ impl<'a> Walk<'a> {
         }
         let id = fnv1a_hex(key.as_bytes());
 
-        let (signature, parameters) = if matches!(kind, Function | Method) {
+        let (signature, parameters, signature_digest) = if matches!(kind, Function | Method) {
             self.signature(node)
         } else {
-            (None, Vec::new())
+            (None, Vec::new(), None)
         };
 
         self.out.symbols.push(Symbol {
@@ -453,6 +453,7 @@ impl<'a> Walk<'a> {
             kind,
             signature,
             parameters,
+            signature_digest,
             exported: self.exported(node),
             range: range(node),
         });
@@ -464,7 +465,7 @@ impl<'a> Walk<'a> {
         });
     }
 
-    fn signature(&self, node: Node) -> (Option<String>, Vec<String>) {
+    fn signature(&self, node: Node) -> (Option<String>, Vec<String>, Option<String>) {
         // For `const f = () => ...` the function is the declarator's value.
         let function = if node.kind() == "variable_declarator" {
             node.child_by_field_name("value").unwrap_or(node)
@@ -489,6 +490,13 @@ impl<'a> Walk<'a> {
             // Cap pathological declarations; 300 chars covers real ones.
             trimmed.chars().take(300).collect::<String>()
         });
+        let digest = self.src.get(node.start_byte()..end).map(|raw| {
+            let words: Vec<&[u8]> = raw
+                .split(u8::is_ascii_whitespace)
+                .filter(|w| !w.is_empty())
+                .collect();
+            fnv1a_hex(&words.join(&b' '))
+        });
 
         let parameters = if let Some(list) = params {
             list.named_children(&mut list.walk())
@@ -502,7 +510,7 @@ impl<'a> Walk<'a> {
                 .into_iter()
                 .collect()
         };
-        (signature, parameters)
+        (signature, parameters, digest)
     }
 
     /// Byte spans inside a parameter list that must never be stored: every

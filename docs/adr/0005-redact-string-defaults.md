@@ -42,3 +42,11 @@ overwritten, not left in free pages.
 
 - The index starts storing bodies, constants or comments.
 - Users need the real default value; then add an explicit opt-in flag.
+
+## Interaction with `atlas changes`
+
+Two versions whose string default differs have the same redacted
+signature. So that this still shows as "signature changed" and not as
+"body changed", each symbol carries a hash of its unredacted declaration
+text. The hash is kept in memory only: it is never serialized or written
+to the index.
