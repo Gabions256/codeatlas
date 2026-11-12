@@ -26,7 +26,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Index a project into <path>/.codeatlas. Reparses only changed files.
+    /// Index a project into PATH/.codeatlas. Reparses only changed files.
     Scan {
         /// Project root. Defaults to --project.
         path: Option<PathBuf>,
