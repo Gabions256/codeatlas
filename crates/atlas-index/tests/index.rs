@@ -275,3 +275,69 @@ fn unreadable_and_unknown_inputs_are_reported_not_fatal() {
         .is_err());
     assert!(Index::open(&root.join("nope")).is_err());
 }
+
+#[test]
+fn ignore_files_exclude_paths_and_bad_rules_are_reported() {
+    let root = project(
+        "ignore-rules",
+        &[
+            (".gitignore", b"generated/\n*.gen.ts\n" as &[u8]),
+            (".codeatlasignore", b"vendor/\n!vendor/keep.ts\n"),
+            ("src/main.ts", b"export function main() {}\n"),
+            ("src/api.gen.ts", b"export function generatedApi() {}\n"),
+            ("generated/out.ts", b"export function out() {}\n"),
+            ("vendor/lib.ts", b"export function vendored() {}\n"),
+            // Nested .gitignore applies below its own directory only.
+            ("pkg/.gitignore", b"local.py\n"),
+            ("pkg/local.py", b"def local():\n    pass\n"),
+            ("pkg/kept.py", b"def kept():\n    pass\n"),
+            ("local.py", b"def top_local():\n    pass\n"),
+            // Re-including a fixed skip directory has no effect.
+            ("node_modules/dep/index.ts", b"export function dep() {}\n"),
+        ],
+    );
+    fs::write(
+        root.join(".gitignore"),
+        "generated/\n*.gen.ts\n!node_modules/\n",
+    )
+    .unwrap();
+    let mut index = Index::open(&root).unwrap();
+    let summary = index.scan().unwrap();
+    assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
+
+    let mut files: Vec<_> = index
+        .symbols(None, None)
+        .unwrap()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    files.sort();
+    assert_eq!(files, ["kept", "main", "top_local"]);
+    // Only the three ignore files themselves count as unsupported; ignored
+    // files are not counted at all.
+    assert_eq!(summary.unsupported, 3);
+
+    // Un-ignoring a file and rescanning picks it up; ignoring one drops it.
+    fs::write(root.join(".codeatlasignore"), "src/main.ts\n").unwrap();
+    let summary = index.scan().unwrap();
+    assert_eq!(summary.removed, 1);
+    let mut names: Vec<_> = index
+        .symbols(None, None)
+        .unwrap()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    names.sort();
+    assert_eq!(names, ["kept", "top_local", "vendored"]);
+
+    // A malformed rule is skipped with a warning, not silently or fatally.
+    fs::write(root.join(".codeatlasignore"), "src/{a\n").unwrap();
+    let summary = index.scan().unwrap();
+    assert_eq!(summary.warnings.len(), 1, "{:?}", summary.warnings);
+    assert!(
+        summary.warnings[0].contains(".codeatlasignore"),
+        "{:?}",
+        summary.warnings
+    );
+    assert!(!summary.warnings[0].contains(&*root.to_string_lossy()));
+}

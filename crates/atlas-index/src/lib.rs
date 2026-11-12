@@ -49,8 +49,7 @@ impl From<serde_json::Error> for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-// shortcut: fixed skip list, no .gitignore / .codeatlasignore support.
-// Upgrade to the `ignore` crate when ignore rules are needed.
+/// Directories never entered, whatever the ignore files say.
 const SKIP_DIRS: &[&str] = &[
     ".git",
     ".codeatlas",
@@ -64,6 +63,8 @@ const SKIP_DIRS: &[&str] = &[
 ];
 
 const INDEX_DIR: &str = ".codeatlas";
+/// Project-specific ignore file, same syntax as `.gitignore`.
+pub const IGNORE_FILE: &str = ".codeatlasignore";
 const SCHEMA_VERSION: i64 = 1;
 
 const SCHEMA: &str = "
@@ -139,7 +140,8 @@ pub struct ScanSummary {
     pub calls_inferred: u64,
     pub imports: u64,
     pub imports_resolved: u64,
-    /// Supported files that could not be read or parsed, with the reason.
+    /// Supported files that could not be read or parsed, and ignore-file
+    /// rules that could not be parsed, with the reason.
     pub warnings: Vec<String>,
 }
 
@@ -295,9 +297,10 @@ impl Index {
     /// content hash changed are reparsed. One transaction: an interrupted
     /// scan leaves the previous index intact.
     pub fn scan(&mut self) -> Result<ScanSummary> {
-        let (found, unsupported) = discover(&self.root)?;
+        let discovered = discover(&self.root)?;
         let mut summary = ScanSummary {
-            unsupported,
+            unsupported: discovered.unsupported,
+            warnings: discovered.warnings,
             ..ScanSummary::default()
         };
 
@@ -312,7 +315,7 @@ impl Index {
             }
         }
 
-        for (relative, absolute, adapter) in found {
+        for (relative, absolute, adapter) in discovered.found {
             let previous = known.remove(&relative);
             let analysis = std::fs::read(&absolute)
                 .map_err(|e| e.to_string())
@@ -607,44 +610,85 @@ fn summarize(symbol: &SymbolRow, calls: &[Edge], called_by: &[Edge]) -> String {
 
 type Found = (String, PathBuf, &'static dyn LanguageAdapter);
 
-/// Supported source files under `root`, sorted by relative path, plus the
-/// number of files no adapter handles.
-fn discover(root: &Path) -> Result<(Vec<Found>, u64)> {
-    let mut found = Vec::new();
-    let mut unsupported = 0u64;
-    let mut pending = vec![root.to_path_buf()];
-    while let Some(dir) = pending.pop() {
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            // DirEntry::file_type does not follow symlinks, so links are
-            // neither dirs nor files here and cannot escape the root.
-            let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                if !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref()) {
-                    pending.push(path);
-                }
+struct Discovered {
+    /// Supported source files, sorted by relative path.
+    found: Vec<Found>,
+    /// Files no adapter handles. Ignored files are not counted.
+    unsupported: u64,
+    /// Ignore-file rules that could not be parsed and were skipped.
+    warnings: Vec<String>,
+}
+
+/// Walks `root`, honouring `.gitignore` and `.codeatlasignore` files inside
+/// it. Ignore files above the root, the global git excludes and
+/// `.git/info/exclude` are not read, so the same tree gives the same index on
+/// every machine. `SKIP_DIRS` are skipped even if an ignore file
+/// re-includes them.
+fn discover(root: &Path) -> Result<Discovered> {
+    let mut out = Discovered {
+        found: Vec::new(),
+        unsupported: 0,
+        warnings: Vec::new(),
+    };
+    let walker = ignore::WalkBuilder::new(root)
+        .standard_filters(false)
+        .git_ignore(true)
+        .require_git(false)
+        .add_custom_ignore_filename(IGNORE_FILE)
+        // Symlinks are reported as links, never followed, so they cannot
+        // escape the root.
+        .follow_links(false)
+        .filter_entry(|e| {
+            !(e.depth() > 0
+                && e.file_type().is_some_and(|t| t.is_dir())
+                && SKIP_DIRS.contains(&e.file_name().to_string_lossy().as_ref()))
+        })
+        .build();
+    for entry in walker {
+        // A malformed ignore rule is skipped by the walker, which keeps
+        // going. Say so instead of silently indexing more than was asked.
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) if e.is_io() => return Err(Error(e.to_string())),
+            Err(e) => {
+                out.warnings.push(ignore_warning(root, &e));
                 continue;
             }
-            if !file_type.is_file() {
-                continue;
-            }
-            let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            let Some(adapter) = atlas_parser::adapter_for(extension) else {
-                unsupported += 1;
-                continue;
-            };
-            let relative = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            found.push((relative, path, adapter));
+        };
+        // Errors from ignore files read on entering a directory arrive
+        // attached to that directory's entry.
+        if let Some(e) = entry.error() {
+            out.warnings.push(ignore_warning(root, e));
         }
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let path = entry.into_path();
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let Some(adapter) = atlas_parser::adapter_for(extension) else {
+            out.unsupported += 1;
+            continue;
+        };
+        let relative = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        out.found.push((relative, path, adapter));
     }
-    // read_dir order is platform-dependent; sort for reproducible results.
-    found.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok((found, unsupported))
+    // Walk order is platform-dependent; sort for reproducible results.
+    out.found.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
+/// Ignore-file error message with the absolute root path made relative.
+fn ignore_warning(root: &Path, e: &ignore::Error) -> String {
+    let message = e.to_string();
+    let message = match root.to_str() {
+        Some(prefix) if !prefix.is_empty() => message.replace(prefix, "."),
+        _ => message,
+    };
+    format!("{message} (rule not applied)")
 }
 
 fn delete_file(tx: &Transaction, entry: Option<(i64, String)>) -> Result<()> {
