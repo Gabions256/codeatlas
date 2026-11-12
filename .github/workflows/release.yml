@@ -25,7 +25,11 @@ jobs:
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+        # A version with a suffix (0.1.0-rc.1) is marked as a pre-release.
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --draft $prerelease --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
 
   build:
     needs: create-release
@@ -40,10 +44,15 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
+          # Intel Macs. Cross-compiled on the Apple Silicon runner, so its
+          # tests run as arm64; the x86_64 binary itself is not executed.
+          - os: macos-latest
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: rustup toolchain install
+      - run: rustup target add ${{ matrix.target }}
       - run: cargo test --workspace --locked
       - run: cargo build --release --locked -p atlas-cli --target ${{ matrix.target }}
       - name: Package

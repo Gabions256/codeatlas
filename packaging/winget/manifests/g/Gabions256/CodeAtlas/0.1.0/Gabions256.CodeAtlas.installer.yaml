@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: Gabions256.CodeAtlas
+PackageVersion: 0.1.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: atlas-v0.1.0-x86_64-pc-windows-msvc\atlas.exe
+    PortableCommandAlias: atlas
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/Gabions256/codeatlas/releases/download/v0.1.0/atlas-v0.1.0-x86_64-pc-windows-msvc.zip
+    InstallerSha256: REPLACE_WITH_SHA256_x86_64-pc-windows-msvc
+ManifestType: installer
+ManifestVersion: 1.6.0
