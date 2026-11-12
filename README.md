@@ -2,7 +2,7 @@
 
 Open-source code intelligence for understanding, exploring and verifying software built by humans and AI agents.
 
-Status: Milestone 1.3. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
+Status: Milestone 1.4. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
 
 ## Use
 
@@ -13,12 +13,30 @@ Status: Milestone 1.3. A local engine that indexes a project, links calls and im
     atlas graph dependents handleCheckout --depth 2
     atlas explain function handleCheckout
     atlas report --format html > report.html
+    atlas changes --base HEAD --depth 2
 
 From a checkout, replace `atlas` with `cargo run -p atlas-cli --`. Add `--json` to any command for machine-readable output, and `--project <path>` to query a project from elsewhere.
 
 `scan` honours `.gitignore` files and a `.codeatlasignore` file (same syntax) anywhere inside the project. Ignore files above the project root, global git excludes and `.git/info/exclude` are not read, so the same tree indexes the same way on every machine. `.git`, `.codeatlas`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv` are always skipped, even if an ignore file re-includes them. A malformed ignore rule is reported as a warning and not applied.
 
 `scan` writes its index to `<project>/.codeatlas/index.db`. That folder ignores itself in git. A rescan reparses only files whose content changed. Nothing else in the project is touched.
+
+## What changed, and what it may affect
+
+`atlas changes` compares the working tree with a git commit (`--base`, default `HEAD`). It needs `git` installed and the project inside a git repository. It rescans the index first.
+
+For each changed file it reports the symbols that were added, removed, had their signature changed, or only their body changed. These come from comparing the source text of the two versions: evidence `Syntax`. New untracked files count as changed; git-ignored files do not.
+
+For a changed symbol, `may affect` lists the callers linked to it, followed `--depth` hops: evidence `Inferred`, because the links are name matches. For a removed symbol, it lists the call sites that still use its name. Files no adapter handles are listed as "changed, not analysed".
+
+It does not say whether a change works, is correct, or is tested. Other limits:
+
+- Callers written as `x.f()` (other than `this`/`self`) are not found, as for `graph`.
+- A symbol renamed inside a file shows as one removed and one added.
+- A changed method also shows its class as body changed.
+- Only the working tree against one commit. Two commits cannot be compared with each other yet.
+
+git is run read-only (`rev-parse`, `diff`, `ls-files`, `cat-file`), never through a shell. A `--base` starting with `-` is rejected. The fsmonitor setting is switched off for these calls, so repository settings cannot start another program, and git's own index file is not rewritten.
 
 ## What each language adapter can establish
 
@@ -58,7 +76,8 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 - No type references, inheritance, or data flow.
 - No documentation comments.
 - No secret redaction: signatures are copied verbatim, including default values.
-- No AI explanations, MCP server, desktop app, Git change analysis or impact analysis.
+- No AI explanations, MCP server or desktop app.
+- No test coverage: nothing says whether changed code is tested.
 
 ## Crates
 
