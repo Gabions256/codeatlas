@@ -5,6 +5,7 @@
 //! line, column), a status and a note saying why. Nothing here is observed
 //! at runtime: the strongest call status is `Inferred`.
 
+mod changes;
 mod html;
 
 use std::collections::{HashMap, HashSet};
@@ -16,6 +17,7 @@ use atlas_parser::LanguageAdapter;
 use rusqlite::{params, Connection, Row, Transaction};
 use serde::Serialize;
 
+pub use changes::{Change, ChangeReport, FileChange, SymbolChange};
 pub use html::render as render_html;
 
 #[derive(Debug)]
@@ -449,11 +451,15 @@ impl Index {
         if roots.is_empty() {
             return Err(Error(format!("no symbol named `{name}` in the index")));
         }
+        self.walk(roots.into_iter().map(|s| s.id).collect(), direction, depth)
+    }
+
+    /// Follows call edges from symbol ids, up to `depth` hops.
+    fn walk(&self, mut frontier: Vec<String>, direction: Direction, depth: u32) -> Result<Graph> {
         let filter = match direction {
             Direction::Dependencies => "c.caller_id = ?1",
             Direction::Dependents => "c.target_id = ?1",
         };
-        let mut frontier: Vec<String> = roots.into_iter().map(|s| s.id).collect();
         let mut visited: HashSet<String> = frontier.iter().cloned().collect();
         let mut out = Vec::new();
         for level in 1..=depth.max(1) {

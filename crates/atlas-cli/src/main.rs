@@ -46,6 +46,16 @@ enum Command {
         #[command(subcommand)]
         command: ExplainCommand,
     },
+    /// Symbols changed since a git commit, and callers that may be affected.
+    /// Rescans the project first. Runs git read-only.
+    Changes {
+        /// Commit to compare the working tree with.
+        #[arg(long, default_value = "HEAD")]
+        base: String,
+        /// Caller hops to follow from each changed symbol.
+        #[arg(long, default_value_t = 1)]
+        depth: u32,
+    },
     /// Print a project report to stdout.
     Report {
         #[arg(long, value_enum, default_value = "html")]
@@ -115,7 +125,8 @@ fn run(cli: Cli) -> atlas_index::Result<()> {
         Command::Scan { path: Some(path) } => path.clone(),
         _ => cli.project.clone(),
     };
-    if !matches!(cli.command, Command::Scan { .. }) && !Index::exists(&root) {
+    let scans = matches!(cli.command, Command::Scan { .. } | Command::Changes { .. });
+    if !scans && !Index::exists(&root) {
         return Err(atlas_index::Error(format!(
             "no index in {}: run `atlas scan` first",
             root.display()
@@ -218,6 +229,56 @@ fn run(cli: Cli) -> atlas_index::Result<()> {
                     println!("- {limitation}");
                 }
                 println!();
+            }
+        }
+        Command::Changes { base, depth } => {
+            let report = index.changes(&base, depth)?;
+            if cli.json {
+                return print_json(&report);
+            }
+            let short = report.base_commit.get(..7).unwrap_or(&report.base_commit);
+            println!(
+                "Compared with {} ({short}). Index rescanned first.",
+                report.base
+            );
+            if report.files.is_empty() {
+                println!("No changed files.");
+            }
+            for file in &report.files {
+                match &file.old_path {
+                    Some(old) => println!("\n{} {old} -> {}", file.status, file.path),
+                    None => println!("\n{} {}", file.status, file.path),
+                }
+                if let Some(note) = &file.note {
+                    println!("  changed, not analysed ({note})");
+                }
+                for s in &file.symbols {
+                    println!(
+                        "  {:<18} {} {}  line {}  [{}]",
+                        s.change.label(),
+                        s.kind.to_lowercase(),
+                        s.qualified_name,
+                        s.line,
+                        s.evidence.label()
+                    );
+                    for e in &s.may_affect {
+                        println!(
+                            "    may affect: {}  {}:{}:{}  [{}]",
+                            e.from,
+                            e.path,
+                            e.line,
+                            e.column,
+                            e.evidence.label()
+                        );
+                    }
+                    if s.truncated {
+                        println!("    (cut at {} call sites: more exist)", s.may_affect.len());
+                    }
+                }
+            }
+            println!("\nLimitations:");
+            for limitation in &report.limitations {
+                println!("- {limitation}");
             }
         }
         Command::Report { format } => {
