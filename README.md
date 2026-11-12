@@ -16,6 +16,8 @@ Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon 
 
 Each archive has a `.sha256` file next to it. Check it before running the binary, for example `sha256sum -c atlas-v0.1.0-x86_64-unknown-linux-musl.tar.gz.sha256`.
 
+Each archive also has signed build provenance. With the GitHub CLI, `gh attestation verify <archive> -R Gabions256/codeatlas` confirms it was built by this repository's release workflow.
+
 The Linux binary is statically linked (musl), so it runs on any x86_64 distribution.
 
 The binaries are not code-signed. Windows SmartScreen and macOS Gatekeeper may warn the first time you run `atlas`. On macOS, `xattr -d com.apple.quarantine ./atlas` removes the warning for a binary you downloaded and trust.
