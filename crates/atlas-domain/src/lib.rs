@@ -19,17 +19,39 @@ pub enum SymbolKind {
     Function,
     Method,
     Class,
+    Struct,
     Interface,
+    Trait,
+    Module,
     Enum,
     TypeAlias,
 }
 
+impl SymbolKind {
+    /// Symbols whose nested functions are methods.
+    pub fn is_type(self) -> bool {
+        matches!(
+            self,
+            Self::Class | Self::Struct | Self::Interface | Self::Trait
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Symbol {
+    /// Hash of file path, qualified name and kind. Survives edits to the
+    /// body and moves within the file; changes on rename or file move.
+    pub id: String,
     pub name: String,
     /// Enclosing symbol names joined with `.`, then the name.
     pub qualified_name: String,
     pub kind: SymbolKind,
+    /// Declaration text up to the body. Functions and methods only.
+    pub signature: Option<String>,
+    /// Parameter source text, one entry per parameter.
+    pub parameters: Vec<String>,
+    /// `None` when the language has no export syntax at this position.
+    pub exported: Option<bool>,
     pub range: SourceRange,
 }
 
@@ -37,6 +59,28 @@ pub struct Symbol {
 pub struct Import {
     /// Module specifier exactly as written, without quotes. Not resolved.
     pub source: String,
+    pub range: SourceRange,
+}
+
+/// How a call names its target. Decides which symbol kinds may match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallForm {
+    /// `f()`
+    Bare,
+    /// `x.f()`
+    Member,
+    /// `a::f()`: a module function or an associated function.
+    Path,
+}
+
+/// A call expression as written. Says nothing about what runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallSite {
+    /// Id of the innermost enclosing symbol, if any.
+    pub caller_id: Option<String>,
+    /// Last name segment of the callee.
+    pub callee: String,
+    pub form: CallForm,
     pub range: SourceRange,
 }
 
@@ -61,15 +105,43 @@ pub struct FileAnalysis {
     pub parse_status: ParseStatus,
     pub symbols: Vec<Symbol>,
     pub imports: Vec<Import>,
+    pub calls: Vec<CallSite>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AnalysisReport {
-    pub engine_version: String,
-    pub root: String,
-    pub generated_at_unix: u64,
-    pub files: Vec<FileAnalysis>,
-    /// Files with no language adapter, or unreadable. Reasons go to stderr.
-    pub skipped_files: u64,
+/// What an adapter can actually establish. Adapters must not claim more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Capabilities {
+    /// Symbols, signatures, parameters, imports and call sites are extracted.
+    pub syntax_extraction: bool,
+    /// `exported` is filled in from export or visibility syntax.
+    pub export_detection: bool,
+    /// Import specifiers are resolved to project files.
+    pub import_resolution: &'static str,
+    /// How call sites are linked to symbols.
+    pub call_resolution: &'static str,
+}
+
+/// FNV-1a 64-bit, as hex. Used for symbol ids and change detection.
+// shortcut: 64-bit non-cryptographic hash, a collision would hide one file
+// change or merge two ids. Upgrade to SHA-256 if the index is ever shared or
+// trusted across machines.
+pub fn fnv1a_hex(bytes: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fnv1a_matches_published_vectors() {
+        assert_eq!(fnv1a_hex(b""), "cbf29ce484222325");
+        assert_eq!(fnv1a_hex(b"a"), "af63dc4c8601ec8c");
+    }
 }
