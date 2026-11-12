@@ -140,6 +140,9 @@ fn run(cli: Cli) -> atlas_index::Result<()> {
             for warning in &summary.warnings {
                 eprintln!("warning: skipped {warning}");
             }
+            for path in &summary.skipped {
+                eprintln!("warning: could not read {path}");
+            }
             if cli.json {
                 return print_json(&summary);
             }
@@ -159,6 +162,12 @@ fn run(cli: Cli) -> atlas_index::Result<()> {
                 summary.imports,
                 summary.imports_resolved
             );
+            if !summary.skipped.is_empty() {
+                println!(
+                    "Incomplete: {} path(s) could not be read and are not in the index.",
+                    summary.skipped.len()
+                );
+            }
         }
         Command::Symbols {
             command: SymbolsCommand::List { query, kind },

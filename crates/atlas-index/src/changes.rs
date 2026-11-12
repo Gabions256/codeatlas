@@ -203,7 +203,9 @@ impl Index {
             let kind = match old.get(key) {
                 None => Change::Added,
                 Some((was, _))
-                    if was.signature != symbol.signature || was.parameters != symbol.parameters =>
+                    if was.signature != symbol.signature
+                        || was.parameters != symbol.parameters
+                        || was.signature_digest != symbol.signature_digest =>
                 {
                     Change::SignatureChanged
                 }
