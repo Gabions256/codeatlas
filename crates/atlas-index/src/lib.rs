@@ -68,7 +68,8 @@ const INDEX_DIR: &str = ".codeatlas";
 /// Project-specific ignore file, same syntax as `.gitignore`.
 pub const IGNORE_FILE: &str = ".codeatlasignore";
 // 2: export detection and call forms changed, so every file must be reparsed.
-const SCHEMA_VERSION: i64 = 2;
+// 3: string defaults are redacted; rebuilding drops secrets stored by 2.
+const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA: &str = "
 DROP TABLE IF EXISTS diagnostics;
@@ -146,6 +147,9 @@ pub struct ScanSummary {
     /// Supported files that could not be read or parsed, and ignore-file
     /// rules that could not be parsed, with the reason.
     pub warnings: Vec<String>,
+    /// Directories or files the scan could not read, with the reason. When
+    /// this is not empty the index is incomplete: those paths are missing.
+    pub skipped: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -260,6 +264,8 @@ const LIMITATIONS: &[&str] = &[
     "`Unresolved` calls may target libraries, built-ins, or code reached dynamically.",
     "`x.f()` is linked only when the receiver is `this` or `self`. Other member calls stay `Unresolved`.",
     "Rust calls written inside macros (`println!`, `assert!`, ...) are not seen at all.",
+    "Python `K()` is not linked to class `K`: constructor calls stay `Unresolved`.",
+    "String default values in signatures are shown as \"<redacted>\". Other defaults are shown as written.",
     "Callers that use dynamic dispatch, reflection or string lookups are not found.",
 ];
 
@@ -300,7 +306,10 @@ impl Index {
             std::fs::write(ignore, "*\n")?;
         }
         let conn = Connection::open(dir.join("index.db"))?;
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        // secure_delete overwrites deleted rows, so a value removed from the
+        // index (such as a secret stored by an older version) does not stay
+        // readable in free pages of the database file.
+        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;")?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version != SCHEMA_VERSION {
             // shortcut: the index is a rebuildable cache, so a schema change
@@ -323,6 +332,7 @@ impl Index {
         let mut summary = ScanSummary {
             unsupported: discovered.unsupported,
             warnings: discovered.warnings,
+            skipped: discovered.skipped,
             ..ScanSummary::default()
         };
 
@@ -669,6 +679,8 @@ struct Discovered {
     unsupported: u64,
     /// Ignore-file rules that could not be parsed and were skipped.
     warnings: Vec<String>,
+    /// Paths the walk could not read, with the reason.
+    skipped: Vec<String>,
 }
 
 /// Walks `root`, honouring `.gitignore` and `.codeatlasignore` files inside
@@ -681,7 +693,10 @@ fn discover(root: &Path) -> Result<Discovered> {
         found: Vec::new(),
         unsupported: 0,
         warnings: Vec::new(),
+        skipped: Vec::new(),
     };
+    // An unreadable root is a real failure, not a partial result.
+    std::fs::read_dir(root).map_err(|e| Error(format!("cannot read {}: {e}", root.display())))?;
     let walker = ignore::WalkBuilder::new(root)
         .standard_filters(false)
         .git_ignore(true)
@@ -701,7 +716,12 @@ fn discover(root: &Path) -> Result<Discovered> {
         // going. Say so instead of silently indexing more than was asked.
         let entry = match entry {
             Ok(entry) => entry,
-            Err(e) if e.is_io() => return Err(Error(e.to_string())),
+            // One unreadable directory or file must not abort the whole
+            // scan. Skip it and say so, so the result reads as incomplete.
+            Err(e) if e.is_io() => {
+                out.skipped.push(skipped_path(root, &e));
+                continue;
+            }
             Err(e) => {
                 out.warnings.push(ignore_warning(root, &e));
                 continue;
@@ -731,6 +751,32 @@ fn discover(root: &Path) -> Result<Discovered> {
     // Walk order is platform-dependent; sort for reproducible results.
     out.found.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
+}
+
+/// Relative path and reason for a walk I/O error.
+fn skipped_path(root: &Path, e: &ignore::Error) -> String {
+    fn path_of(e: &ignore::Error) -> Option<&Path> {
+        match e {
+            ignore::Error::WithPath { path, .. } => Some(path),
+            ignore::Error::WithDepth { err, .. } | ignore::Error::WithLineNumber { err, .. } => {
+                path_of(err)
+            }
+            _ => None,
+        }
+    }
+    let reason = e
+        .io_error()
+        .map_or_else(|| e.to_string(), ToString::to_string);
+    match path_of(e) {
+        Some(path) => {
+            let relative = path.strip_prefix(root).unwrap_or(path);
+            format!(
+                "{}: {reason}",
+                relative.to_string_lossy().replace('\\', "/")
+            )
+        }
+        None => reason,
+    }
 }
 
 /// Ignore-file error message with the absolute root path made relative.

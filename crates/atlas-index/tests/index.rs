@@ -431,13 +431,17 @@ fn html_report_escapes_project_content() {
         "html",
         &[(
             "x.ts",
-            b"export function x(a = \"<script>alert(1)</script>\") { x(); }\n" as &[u8],
+            // A literal type is kept verbatim (not a default), so the hostile
+            // text reaches the report; the default is redacted.
+            b"export function x(a: \"<script>alert(1)</script>\" = \"<b>\") { x(); }\n" as &[u8],
         )],
     );
     let mut index = Index::open(&root).unwrap();
     index.scan().unwrap();
     let html = render_html(&index.report().unwrap());
     assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(html.contains("= &quot;&lt;redacted&gt;&quot;"));
+    assert!(!html.contains("<b>"));
     assert!(!html.contains("<script"));
     let id = &index.find("x").unwrap()[0].id;
     assert!(html.contains(&format!("id=\"s-{id}\"")));
@@ -529,4 +533,168 @@ fn ignore_files_exclude_paths_and_bad_rules_are_reported() {
         summary.warnings
     );
     assert!(!summary.warnings[0].contains(&*root.to_string_lossy()));
+}
+
+const SECRET: &str = "sk-live-123";
+
+fn db_contains(root: &Path, needle: &str) -> bool {
+    let bytes = fs::read(root.join(".codeatlas/index.db")).unwrap();
+    bytes.windows(needle.len()).any(|w| w == needle.as_bytes())
+}
+
+#[test]
+fn secret_defaults_never_reach_index_json_explain_or_html() {
+    let root = project(
+        "secrets",
+        &[
+            (
+                "pay.py",
+                b"def pay(api_key=\"sk-live-123\", tip=0):\n    return tip\n" as &[u8],
+            ),
+            (
+                "pay.ts",
+                b"export function charge(token = 'sk-live-123') {}\n",
+            ),
+        ],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+
+    let report = index.report().unwrap();
+    assert!(!serde_json::to_string(&report).unwrap().contains(SECRET));
+    assert!(!render_html(&report).contains(SECRET));
+    for name in ["pay", "charge"] {
+        let explained = index.explain_function(name).unwrap();
+        assert_eq!(explained.len(), 1);
+        assert!(!serde_json::to_string(&explained).unwrap().contains(SECRET));
+        let limits = &explained[0].limitations;
+        assert!(limits.iter().any(|l| l.contains("<redacted>")));
+        assert!(limits.iter().any(|l| l.starts_with("Python `K()`")));
+    }
+    let pay = &index.find("pay").unwrap()[0];
+    assert_eq!(
+        pay.signature.as_deref(),
+        Some("def pay(api_key=\"<redacted>\", tip=0)")
+    );
+    drop(index);
+    assert!(!db_contains(&root, SECRET));
+}
+
+#[test]
+fn secret_stored_by_schema_2_is_wiped_on_upgrade() {
+    let root = project(
+        "secrets-upgrade",
+        &[("a.py", b"def a():\n    pass\n" as &[u8])],
+    );
+    Index::open(&root).unwrap().scan().unwrap();
+
+    // Simulate what version 2 stored: the default value verbatim.
+    let db = rusqlite::Connection::open(root.join(".codeatlas/index.db")).unwrap();
+    db.execute_batch(
+        "UPDATE symbols SET signature = 'def a(key=\"sk-live-123\")'; PRAGMA user_version = 2;",
+    )
+    .unwrap();
+    drop(db);
+    assert!(db_contains(&root, SECRET));
+
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    drop(index);
+    assert!(!db_contains(&root, SECRET));
+}
+
+#[test]
+fn secret_removed_by_a_rescan_is_not_left_in_the_file() {
+    let root = project(
+        "secrets-rescan",
+        &[("a.py", b"def a(k=\"x\"):\n    pass\n" as &[u8])],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    // A secret that slips into a stored row (here a call name) must be
+    // overwritten, not just unlinked, when the file changes.
+    fs::write(root.join("a.py"), "def a():\n    sk_live_123()\n").unwrap();
+    index.scan().unwrap();
+    fs::write(root.join("a.py"), "def a():\n    pass\n").unwrap();
+    index.scan().unwrap();
+    drop(index);
+    assert!(!db_contains(&root, "sk_live_123"));
+}
+
+/// Unix only: Windows has no `chmod 000`, and ACL-based denial is not tested.
+#[cfg(unix)]
+#[test]
+fn unreadable_directory_is_skipped_and_reported() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = project(
+        "unreadable-dir",
+        &[
+            ("ok.py", b"def ok():\n    pass\n" as &[u8]),
+            ("locked/hidden.py", b"def hidden():\n    pass\n"),
+        ],
+    );
+    let mut index = Index::open(&root).unwrap();
+    assert_eq!(index.scan().unwrap().files, 2);
+
+    let locked = root.join("locked");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    // Running as root ignores permissions; nothing to test then.
+    if fs::read_dir(&locked).is_ok() {
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let summary = index.scan();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let summary = summary.unwrap();
+
+    assert_eq!(summary.files, 1);
+    assert_eq!(summary.removed, 1);
+    assert_eq!(summary.skipped.len(), 1, "{:?}", summary.skipped);
+    assert!(
+        summary.skipped[0].starts_with("locked: "),
+        "{:?}",
+        summary.skipped
+    );
+    assert!(!index.find("ok").unwrap().is_empty());
+    assert!(index.find("hidden").unwrap().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_root_is_an_error() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = project(
+        "unreadable-root",
+        &[("a.py", b"def a():\n    pass\n" as &[u8])],
+    );
+    let mut index = Index::open(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o000)).unwrap();
+    let denied = fs::read_dir(&root).is_err();
+    let result = index.scan();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+    if denied {
+        assert!(result.unwrap_err().to_string().contains("cannot read"));
+    }
+}
+
+/// Documented blind spot: a Python class call is not linked to the class.
+#[test]
+fn python_class_call_stays_unresolved() {
+    let root = project(
+        "py-class-call",
+        &[(
+            "a.py",
+            b"class K:\n    pass\n\ndef make():\n    return K()\n" as &[u8],
+        )],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let edges = index
+        .graph(Some("make"), Direction::Dependencies, 1)
+        .unwrap()
+        .edges;
+    assert_eq!(links(&edges), [("make", "K", "Unresolved")]);
+    assert_eq!(edges[0].to_id, None);
 }
