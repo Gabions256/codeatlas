@@ -2,26 +2,60 @@
 
 Open-source code intelligence for understanding, exploring and verifying software built by humans and AI agents.
 
-Status: Milestone 0. One language adapter (TypeScript / TSX), syntax-level only.
+Status: Milestone 1.1. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
 
 ## Use
 
-    cargo run -p atlas-cli -- scan fixtures/typescript/sample
+    atlas scan ./my-project
+    cd my-project
+    atlas symbols list
+    atlas graph dependencies
+    atlas graph dependents handleCheckout --depth 2
+    atlas explain function handleCheckout
+    atlas report --format html > report.html
 
-Prints a JSON report to stdout: per file, the declared symbols (functions, methods, classes, interfaces, enums, type aliases), imports, and parser diagnostics, each with a source range. Warnings go to stderr.
+From a checkout, replace `atlas` with `cargo run -p atlas-cli --`. Add `--json` to any command for machine-readable output, and `--project <path>` to query a project from elsewhere.
 
-## What the report does and does not claim
+`scan` writes its index to `<project>/.codeatlas/index.db`. That folder ignores itself in git. A rescan reparses only files whose content changed. Nothing else in the project is touched.
 
-- A symbol means a declaration exists at that range. It does not mean the code runs or works.
-- Imports are the specifier as written. They are not resolved to files.
-- No call relationships, no graph, no explanations yet.
-- `.gitignore` is not read. `.git`, `node_modules`, `target`, `dist` and `build` are skipped.
+## What each language adapter can establish
+
+All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
+
+| Language | Extensions | Symbols, signatures, parameters, call sites | Export detection | Import resolution |
+| --- | --- | --- | --- | --- |
+| TypeScript | ts, tsx, mts, cts | yes | `export` | relative specifiers to project files |
+| JavaScript | js, jsx, mjs, cjs | yes | `export` | relative specifiers to project files |
+| Rust | rs | yes | `pub` | none |
+| Python | py | yes | none | none |
+
+## What the output does and does not claim
+
+- A symbol means a declaration exists at that source range. It does not mean the code runs or works.
+- Every call site and import is reported with its file, line and column. That position is the evidence.
+- A call is `Inferred` when exactly one project function or method has that name (same file first, then the whole project). It is a name match. It was not type-checked or observed.
+- A call is `Unresolved` when no name or several names match. The note says which. Library calls, built-ins and dynamic calls land here.
+- `f()` is matched to functions, `x.f()` to methods, and Rust `a::f()` to either.
+- `explain` describes structure: where a function is, its signature, what it calls, what calls it. It does not say what the code does.
+- Symbol ids are a hash of file path, qualified name and kind. They survive edits and moves within a file. They change on rename or file move.
+
+## Not done yet
+
+- `.gitignore` and `.codeatlasignore` are not read. `.git`, `.codeatlas`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv` are skipped.
+- No Rust or Python import resolution. No `require()`, re-exports or path aliases.
+- No type references, inheritance, or data flow.
+- No documentation comments.
+- No secret redaction: signatures are copied verbatim, including default values.
+- No AI explanations, MCP server, desktop app, Git change analysis or impact analysis.
 
 ## Crates
 
-- `atlas-domain`: report and symbol types.
+- `atlas-domain`: shared types. No internal dependencies.
 - `atlas-parser`: Tree-sitter integration and language adapters.
-- `atlas-cli`: the `atlas` binary.
+- `atlas-index`: the shared engine. Discovery, incremental SQLite index, link resolution, queries, reports.
+- `atlas-cli`: the `atlas` binary. Argument parsing and printing only.
+
+Design decisions are in [docs/adr](docs/adr).
 
 ## Develop
 
@@ -29,7 +63,7 @@ Prints a JSON report to stdout: per file, the declared symbols (functions, metho
     cargo clippy --workspace --all-targets -- -D warnings
     cargo test --workspace
 
-A C compiler is required to build the Tree-sitter grammars.
+A C compiler is required: the Tree-sitter grammars and SQLite are built from source. On Windows with a long checkout path, set `CARGO_TARGET_DIR` to a short path.
 
 Minimum supported Rust version (MSRV): 1.90, set by `rust-version` in `Cargo.toml`. CI checks it alongside stable on Linux, Windows and macOS, builds the docs, and runs `cargo deny check` (advisories, licences, bans, sources; config in `deny.toml`).
 
