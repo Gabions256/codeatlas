@@ -1,0 +1,277 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use atlas_index::{render_html, Direction, Edge, Index};
+
+/// Fresh project directory under the cargo test tmpdir.
+fn project(name: &str, files: &[(&str, &[u8])]) -> PathBuf {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    for (path, content) in files {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, content).unwrap();
+    }
+    root
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+/// Scratch copy of a fixture, so tests never write an index into the repo.
+fn fixture(language: &str) -> PathBuf {
+    let root = project(&format!("fixture-{language}"), &[]);
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures")
+        .join(language)
+        .join("sample");
+    copy_dir(&source, &root);
+    root
+}
+
+fn links(edges: &[Edge]) -> Vec<(&str, &str, &str)> {
+    edges
+        .iter()
+        .map(|e| (e.from.as_str(), e.to.as_str(), e.status.as_str()))
+        .collect()
+}
+
+#[test]
+fn scans_sample_repository() {
+    let root = fixture("typescript");
+    let mut index = Index::open(&root).unwrap();
+    let summary = index.scan().unwrap();
+    assert_eq!(summary.files, 4);
+    assert_eq!(summary.reparsed, 4);
+    // README.md has no adapter; node_modules is never entered.
+    assert_eq!(summary.unsupported, 1);
+    assert!(summary.warnings.is_empty());
+
+    let report = index.report().unwrap();
+    let paths: Vec<_> = report.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        [
+            "src/broken.ts",
+            "src/cart.ts",
+            "src/checkout.ts",
+            "src/types.ts"
+        ]
+    );
+    assert_eq!(report.files[0].parse_status, "ParsedWithErrors");
+    assert!(!report.files[0].diagnostics.is_empty());
+
+    let cart = &report.files[1];
+    assert_eq!(cart.parse_status, "Parsed");
+    assert_eq!(cart.imports[0].source, "./types");
+    assert_eq!(
+        cart.imports[0].resolved_path.as_deref(),
+        Some("src/types.ts")
+    );
+    let symbols: Vec<_> = cart
+        .symbols
+        .iter()
+        .map(|s| (s.qualified_name.as_str(), s.kind.as_str(), s.start_line))
+        .collect();
+    assert_eq!(
+        symbols,
+        [
+            ("Cart", "Interface", 3),
+            ("Total", "TypeAlias", 5),
+            ("Status", "Enum", 7),
+            ("handleCheckout", "Function", 9),
+            ("applyDiscount", "Function", 13),
+            ("CartService", "Class", 15),
+            ("CartService.add", "Method", 16),
+        ]
+    );
+
+    let dependents = index
+        .graph(Some("handleCheckout"), Direction::Dependents, 1)
+        .unwrap();
+    assert_eq!(
+        links(&dependents),
+        [("payNow", "handleCheckout", "Inferred")]
+    );
+    // The evidence for the link is the call site.
+    assert_eq!(
+        (dependents[0].path.as_str(), dependents[0].line),
+        ("src/checkout.ts", 4)
+    );
+
+    let dependencies = index
+        .graph(Some("payNow"), Direction::Dependencies, 1)
+        .unwrap();
+    assert_eq!(
+        links(&dependencies),
+        [
+            ("payNow", "handleCheckout", "Inferred"),
+            ("payNow", "log", "Unresolved"),
+            ("payNow", "applyDiscount", "Inferred"),
+        ]
+    );
+
+    // The report serializes.
+    serde_json::to_string(&report).unwrap();
+}
+
+#[test]
+fn rescans_only_changed_files_and_relinks_the_rest() {
+    let root = project(
+        "incremental",
+        &[
+            ("a.ts", b"export function helper() {}\n"),
+            (
+                "b.ts",
+                b"import { helper } from './a';\nfunction main() { helper(); }\n",
+            ),
+        ],
+    );
+    let mut index = Index::open(&root).unwrap();
+    let first = index.scan().unwrap();
+    assert_eq!((first.reparsed, first.unchanged, first.removed), (2, 0, 0));
+    assert_eq!(first.calls_inferred, 1);
+    assert_eq!(first.imports_resolved, 1);
+    let helper_id = index.find("helper").unwrap()[0].id.clone();
+
+    let second = index.scan().unwrap();
+    assert_eq!((second.reparsed, second.unchanged), (0, 2));
+
+    // Editing a body reparses that file only and keeps the symbol id.
+    fs::write(
+        root.join("a.ts"),
+        "export function helper() { return 1; }\n",
+    )
+    .unwrap();
+    let third = index.scan().unwrap();
+    assert_eq!((third.reparsed, third.unchanged), (1, 1));
+    assert_eq!(index.find("helper").unwrap()[0].id, helper_id);
+    assert_eq!(third.calls_inferred, 1);
+
+    // Deleting a.ts unlinks the call in b.ts, which is not reparsed.
+    fs::remove_file(root.join("a.ts")).unwrap();
+    let fourth = index.scan().unwrap();
+    assert_eq!(
+        (fourth.reparsed, fourth.unchanged, fourth.removed),
+        (0, 1, 1)
+    );
+    assert_eq!((fourth.calls_inferred, fourth.imports_resolved), (0, 0));
+    assert!(index.find("helper").unwrap().is_empty());
+
+    // The index persists across opens.
+    drop(index);
+    let reopened = Index::open(&root).unwrap();
+    assert_eq!(reopened.find("main").unwrap().len(), 1);
+}
+
+#[test]
+fn ambiguous_names_are_not_linked() {
+    let root = project(
+        "ambiguous",
+        &[
+            ("a.ts", b"export function run() {}\n"),
+            ("b.ts", b"export function run() {}\n"),
+            ("c.ts", b"function main() { run(); obj.run(); }\n"),
+        ],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let edges = index
+        .graph(Some("main"), Direction::Dependencies, 1)
+        .unwrap();
+    assert_eq!(edges.len(), 2);
+    assert!(edges.iter().all(|e| e.to_id.is_none()));
+    assert!(edges[0].note.contains("ambiguous: 2 candidates"));
+    // `obj.run()` is a member call; the only `run`s are plain functions.
+    assert!(edges[1].note.contains("no project symbol"));
+}
+
+#[test]
+fn rust_and_python_calls_follow_declared_rules() {
+    let root = fixture("rust");
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let edges = index
+        .graph(Some("check"), Direction::Dependencies, 2)
+        .unwrap();
+    assert_eq!(
+        links(&edges),
+        [
+            ("check", "Cart.new", "Inferred"),
+            ("check", "Cart.size", "Inferred"),
+            ("Cart.new", "check", "Inferred"),
+        ]
+    );
+    assert_eq!(edges[2].depth, 2);
+
+    let root = fixture("python");
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let explained = index.explain_function("total").unwrap();
+    assert_eq!(explained.len(), 1);
+    let total = &explained[0];
+    assert_eq!(links(&total.called_by), [("Shop.pay", "total", "Inferred")]);
+    assert_eq!(links(&total.calls), [("total", "len", "Unresolved")]);
+    assert!(total.summary.contains("shop.py at lines 14-15"));
+    assert!(total.summary.contains("1 parameter(s): cart"));
+    assert!(!total.limitations.is_empty());
+    // Python declares no import resolution.
+    let report = index.report().unwrap();
+    assert!(report.files[0]
+        .imports
+        .iter()
+        .all(|i| i.resolved_path.is_none()));
+    // Not a function: nothing to explain.
+    assert!(index.explain_function("Shop").unwrap().is_empty());
+}
+
+#[test]
+fn html_report_escapes_project_content() {
+    let root = project(
+        "html",
+        &[(
+            "x.ts",
+            b"export function x(a = \"<script>alert(1)</script>\") { x(); }\n" as &[u8],
+        )],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let html = render_html(&index.report().unwrap());
+    assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+    assert!(!html.contains("<script"));
+    let id = &index.find("x").unwrap()[0].id;
+    assert!(html.contains(&format!("id=\"s-{id}\"")));
+    assert!(html.contains(&format!("href=\"#s-{id}\"")));
+}
+
+#[test]
+fn unreadable_and_unknown_inputs_are_reported_not_fatal() {
+    let root = project(
+        "bad-input",
+        &[
+            ("ok.py", b"def ok():\n    pass\n" as &[u8]),
+            ("binary.ts", &[0xff, 0xfe, 0x00, 0x41]),
+            ("notes.txt", b"hello"),
+        ],
+    );
+    let mut index = Index::open(&root).unwrap();
+    let summary = index.scan().unwrap();
+    assert_eq!(summary.files, 1);
+    assert_eq!(summary.unsupported, 1);
+    assert_eq!(summary.warnings, ["binary.ts: not UTF-8"]);
+    assert!(index
+        .graph(Some("missing"), Direction::Dependencies, 1)
+        .is_err());
+    assert!(Index::open(&root.join("nope")).is_err());
+}
