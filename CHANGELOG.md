@@ -35,4 +35,4 @@ Every symbol, import and call is reported with its source position and an eviden
 - Symbol ids change when a symbol or its file is renamed.
 - A folder or file that cannot be read is skipped, and the scan says the index is incomplete.
 - `atlas changes` needs `git`, compares the working tree with one commit, and shows a renamed symbol as removed plus added.
-- Binaries are not code-signed.
+- Binaries are not code-signed. Each archive has a SHA-256 file and signed build provenance (`gh attestation verify`).
