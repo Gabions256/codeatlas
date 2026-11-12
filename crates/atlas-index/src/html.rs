@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use atlas_domain::Evidence;
+
 use crate::{Edge, Report};
 
 fn esc(text: &str) -> String {
@@ -22,6 +24,13 @@ section{border-top:1px solid #ccc;margin-top:2rem}.sym{margin:1rem 0 1rem 1rem}\
 .note{background:#fff8e1;padding:.5rem 1rem}.dim{color:#555}\
 h2 code,h3 code{font-size:inherit}h3 .dim,h3 .tag{font-size:13px;font-weight:normal}";
 
+fn tag(evidence: Evidence) -> String {
+    format!(
+        "<span class=\"tag\" title=\"evidence class\">{}</span>",
+        evidence.label()
+    )
+}
+
 fn edge_item(edge: &Edge, outgoing: bool) -> String {
     let (id, name) = if outgoing {
         (&edge.to_id, &edge.to)
@@ -32,9 +41,15 @@ fn edge_item(edge: &Edge, outgoing: bool) -> String {
         Some(id) => format!("<a href=\"#s-{}\"><code>{}</code></a>", esc(id), esc(name)),
         None => format!("<code>{}</code>", esc(name)),
     };
+    // A linked edge's status and evidence class are both "inferred".
+    let status = if edge.to_id.is_some() {
+        String::new()
+    } else {
+        format!("<span class=\"tag\">{}</span> ", esc(&edge.status))
+    };
     format!(
-        "<li>{name} <span class=\"tag\">{}</span> <span class=\"dim\">{}:{}:{} · {}</span></li>",
-        esc(&edge.status),
+        "<li>{name} {status}{} <span class=\"dim\">{}:{}:{} · {}</span></li>",
+        tag(edge.evidence),
         esc(&edge.path),
         edge.line,
         edge.column,
@@ -85,7 +100,13 @@ pub fn render(report: &Report) -> String {
          call sites are read from syntax: they exist in the source at the stated position. \
          A call marked <em>Inferred</em> is linked to a symbol because exactly one name \
          matched; it was not type-checked or observed running. <em>Unresolved</em> calls \
-         may target libraries, built-ins or dynamic code. Nothing here says the code works.</div>",
+         may target libraries, built-ins or dynamic code. Nothing here says the code works.\
+         <br><strong>Evidence classes.</strong> <em>syntax</em>: written in the source at that \
+         position. <em>static analysis</em>: an import matched to a file by path convention. \
+         <em>inferred</em>: a call matched to a symbol by name. This report contains no \
+         runtime, test or AI evidence.\
+         <br><strong>Not seen.</strong> <code>x.f()</code> is linked only when the receiver is \
+         <code>this</code> or <code>self</code>. Rust calls inside macros are not seen.</div>",
     );
 
     h.push_str(
@@ -150,8 +171,9 @@ pub fn render(report: &Report) -> String {
                     None => " <span class=\"dim\">not resolved to a project file</span>".into(),
                 };
                 h.push_str(&format!(
-                    "<li><code>{}</code>{target} <span class=\"dim\">line {}</span></li>",
+                    "<li><code>{}</code>{target} {} <span class=\"dim\">line {}</span></li>",
                     esc(&import.source),
+                    tag(import.evidence),
                     import.line
                 ));
             }
@@ -163,16 +185,19 @@ pub fn render(report: &Report) -> String {
             true,
         ));
         for symbol in &file.symbols {
-            let exported = match symbol.exported {
-                Some(true) => " <span class=\"tag\">exported</span>",
-                _ => "",
+            let exported = match crate::visibility(&symbol.language, symbol.exported) {
+                Some(label) if symbol.exported == Some(true) => {
+                    format!(" <span class=\"tag\">{label}</span>")
+                }
+                _ => String::new(),
             };
             h.push_str(&format!(
-                "<div class=\"sym\" id=\"s-{}\"><h3><code>{}</code> <span class=\"tag\">{}</span>{exported} \
+                "<div class=\"sym\" id=\"s-{}\"><h3><code>{}</code> <span class=\"tag\">{}</span>{exported} {} \
                  <span class=\"dim\">lines {}-{}</span></h3>",
                 esc(&symbol.id),
                 esc(&symbol.qualified_name),
                 esc(&symbol.kind),
+                tag(symbol.evidence),
                 symbol.start_line,
                 symbol.end_line
             ));

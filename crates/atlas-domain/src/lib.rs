@@ -14,6 +14,37 @@ pub struct SourceRange {
     pub end_column: u32,
 }
 
+/// How a claim was established. Every reported symbol, import and call
+/// carries one. A weaker class must never be shown as a stronger one.
+///
+/// Only the first three are produced today: nothing in CodeAtlas runs
+/// code, reads test results or calls an AI provider yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Evidence {
+    /// Read from the source text: it exists at the stated position.
+    Syntax,
+    /// Derived from the source by a rule, such as file-path conventions.
+    StaticAnalysis,
+    /// A guess from names. Not type-checked.
+    Inferred,
+    RuntimeObserved,
+    TestResult,
+    AiSuggestion,
+}
+
+impl Evidence {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Syntax => "syntax",
+            Self::StaticAnalysis => "static analysis",
+            Self::Inferred => "inferred",
+            Self::RuntimeObserved => "runtime observed",
+            Self::TestResult => "test result",
+            Self::AiSuggestion => "AI suggestion",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymbolKind {
     Function,
@@ -50,7 +81,10 @@ pub struct Symbol {
     pub signature: Option<String>,
     /// Parameter source text, one entry per parameter.
     pub parameters: Vec<String>,
-    /// `None` when the language has no export syntax at this position.
+    /// Script: an `export` names this symbol. Rust: it has a `pub` modifier,
+    /// which says nothing about whether it is reachable from outside.
+    /// `None` when the syntax cannot tell: nested symbols, Python, and
+    /// script files with no `import` or `export` (possibly CommonJS).
     pub exported: Option<bool>,
     pub range: SourceRange,
 }
@@ -67,8 +101,12 @@ pub struct Import {
 pub enum CallForm {
     /// `f()`
     Bare,
-    /// `x.f()`
+    /// `x.f()`: the receiver's type is unknown, so it is never linked.
     Member,
+    /// `this.f()` in scripts, `self.f()` in Rust and Python.
+    SelfMember,
+    /// `new X()` in scripts.
+    New,
     /// `a::f()`: a module function or an associated function.
     Path,
 }

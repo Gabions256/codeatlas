@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use atlas_domain::Evidence;
 use atlas_index::{render_html, Direction, Edge, Index};
 
 /// Fresh project directory under the cargo test tmpdir.
@@ -99,7 +100,8 @@ fn scans_sample_repository() {
 
     let dependents = index
         .graph(Some("handleCheckout"), Direction::Dependents, 1)
-        .unwrap();
+        .unwrap()
+        .edges;
     assert_eq!(
         links(&dependents),
         [("payNow", "handleCheckout", "Inferred")]
@@ -112,7 +114,8 @@ fn scans_sample_repository() {
 
     let dependencies = index
         .graph(Some("payNow"), Direction::Dependencies, 1)
-        .unwrap();
+        .unwrap()
+        .edges;
     assert_eq!(
         links(&dependencies),
         [
@@ -189,7 +192,8 @@ fn ambiguous_names_are_not_linked() {
     index.scan().unwrap();
     let edges = index
         .graph(Some("main"), Direction::Dependencies, 1)
-        .unwrap();
+        .unwrap()
+        .edges;
     assert_eq!(edges.len(), 2);
     assert!(edges.iter().all(|e| e.to_id.is_none()));
     assert!(edges[0].note.contains("ambiguous: 2 candidates"));
@@ -204,15 +208,22 @@ fn rust_and_python_calls_follow_declared_rules() {
     index.scan().unwrap();
     let edges = index
         .graph(Some("check"), Direction::Dependencies, 2)
-        .unwrap();
+        .unwrap()
+        .edges;
     assert_eq!(
         links(&edges),
         [
             ("check", "Cart.new", "Inferred"),
-            ("check", "Cart.size", "Inferred"),
+            // `cart.size()`: the receiver is a variable, so it is not linked.
+            ("check", "size", "Unresolved"),
             ("Cart.new", "check", "Inferred"),
         ]
     );
+    assert!(edges[1].note.contains("1 method(s) have this name"));
+    // Rust's flag is the modifier, not reachability.
+    let explain = |name: &str| index.explain_function(name).unwrap().remove(0).summary;
+    assert!(explain("new").contains("(method, has a `pub` modifier)"));
+    assert!(explain("size").contains("(method, no `pub` modifier)"));
     assert_eq!(edges[2].depth, 2);
 
     let root = fixture("python");
@@ -234,6 +245,184 @@ fn rust_and_python_calls_follow_declared_rules() {
         .all(|i| i.resolved_path.is_none()));
     // Not a function: nothing to explain.
     assert!(index.explain_function("Shop").unwrap().is_empty());
+}
+
+#[test]
+fn every_row_carries_its_evidence_class() {
+    let root = project(
+        "evidence",
+        &[
+            ("a.ts", b"export function helper() {}\n" as &[u8]),
+            (
+                "b.ts",
+                b"import { helper } from './a';\nimport React from 'react';\n\
+                  function main() { helper(); missing(); }\n",
+            ),
+        ],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let report = index.report().unwrap();
+    assert!(report
+        .files
+        .iter()
+        .flat_map(|f| &f.symbols)
+        .all(|s| s.evidence == Evidence::Syntax));
+    let imports: Vec<_> = report.files[1]
+        .imports
+        .iter()
+        .map(|i| (i.source.as_str(), i.evidence))
+        .collect();
+    assert_eq!(
+        imports,
+        [
+            ("./a", Evidence::StaticAnalysis),
+            ("react", Evidence::Syntax)
+        ]
+    );
+    let calls: Vec<_> = report
+        .calls
+        .iter()
+        .map(|e| (e.to.as_str(), e.evidence))
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            ("helper", Evidence::Inferred),
+            ("missing", Evidence::Syntax)
+        ]
+    );
+
+    let json = serde_json::to_string(&report).unwrap();
+    assert!(json.contains("\"evidence\":\"StaticAnalysis\""));
+    let html = render_html(&report);
+    for label in ["syntax", "static analysis", "inferred"] {
+        assert!(html.contains(&format!("title=\"evidence class\">{label}</span>")));
+    }
+}
+
+#[test]
+fn member_calls_link_only_through_this_or_self() {
+    let root = project(
+        "receivers",
+        &[(
+            "a.ts",
+            b"class K { log() {} push() {} run() { this.log(); } }\n\
+              function main() { console.log(1); [].push(2); new K(); }\n" as &[u8],
+        )],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let main = index
+        .graph(Some("main"), Direction::Dependencies, 1)
+        .unwrap()
+        .edges;
+    assert_eq!(
+        links(&main),
+        [
+            ("main", "log", "Unresolved"),
+            ("main", "push", "Unresolved"),
+            ("main", "K", "Inferred"),
+        ]
+    );
+    assert!(main[0].note.contains("receiver is not this/self"));
+    let run = index
+        .graph(Some("K.run"), Direction::Dependencies, 1)
+        .unwrap()
+        .edges;
+    assert_eq!(links(&run), [("K.run", "K.log", "Inferred")]);
+}
+
+#[test]
+fn commonjs_symbols_are_not_called_not_exported() {
+    let root = project(
+        "commonjs",
+        &[(
+            "x.js",
+            b"function used() {}\nmodule.exports = { used };\n" as &[u8],
+        )],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let explained = index.explain_function("used").unwrap();
+    assert_eq!(explained[0].symbol.exported, None);
+    assert!(explained[0]
+        .summary
+        .contains("`used` (function) is declared"));
+}
+
+#[test]
+fn graph_says_when_it_was_cut_and_survives_cycles() {
+    let mut source = String::from("function f() {}\nfunction main() {\n");
+    source.push_str(&"f();\n".repeat(5001));
+    source.push_str("}\nfunction a() { b(); }\nfunction b() { a(); }\n");
+    let root = project("truncated", &[("big.ts", source.as_bytes())]);
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let cut = index
+        .graph(Some("main"), Direction::Dependencies, 1)
+        .unwrap();
+    assert_eq!(cut.edges.len(), 5000);
+    assert!(cut.truncated);
+
+    let cycle = index.graph(Some("a"), Direction::Dependencies, 50).unwrap();
+    assert_eq!(
+        links(&cycle.edges),
+        [("a", "b", "Inferred"), ("b", "a", "Inferred")]
+    );
+    assert!(!cycle.truncated);
+}
+
+#[test]
+fn moved_file_gets_new_ids_and_links_are_recomputed() {
+    let root = project(
+        "moved",
+        &[
+            ("a.ts", b"export function helper() {}\n" as &[u8]),
+            (
+                "b.ts",
+                b"import { helper } from './a';\nfunction main() { helper(); }\n",
+            ),
+        ],
+    );
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    let old_id = index.find("helper").unwrap()[0].id.clone();
+
+    fs::create_dir_all(root.join("lib")).unwrap();
+    fs::rename(root.join("a.ts"), root.join("lib/a.ts")).unwrap();
+    let summary = index.scan().unwrap();
+    assert_eq!(
+        (summary.reparsed, summary.unchanged, summary.removed),
+        (1, 1, 1)
+    );
+    let helper = &index.find("helper").unwrap()[0];
+    assert_eq!(helper.path, "lib/a.ts");
+    assert_ne!(helper.id, old_id);
+    // `./a` no longer exists; the call still matches the one `helper` by name.
+    assert_eq!(summary.imports_resolved, 0);
+    let edges = index
+        .graph(Some("main"), Direction::Dependencies, 1)
+        .unwrap()
+        .edges;
+    assert_eq!(edges[0].to_id.as_deref(), Some(helper.id.as_str()));
+}
+
+#[test]
+fn index_from_an_older_schema_is_rebuilt() {
+    let root = project("schema", &[("a.ts", b"function a() {}\n" as &[u8])]);
+    let mut index = Index::open(&root).unwrap();
+    index.scan().unwrap();
+    drop(index);
+
+    let db = rusqlite::Connection::open(root.join(".codeatlas/index.db")).unwrap();
+    db.execute_batch("PRAGMA user_version = 1;").unwrap();
+    drop(db);
+
+    let mut index = Index::open(&root).unwrap();
+    assert!(index.find("a").unwrap().is_empty());
+    let summary = index.scan().unwrap();
+    assert_eq!((summary.reparsed, summary.unchanged), (1, 0));
 }
 
 #[test]
