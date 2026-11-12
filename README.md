@@ -2,7 +2,7 @@
 
 Open-source code intelligence for understanding, exploring and verifying software built by humans and AI agents.
 
-Status: Milestone 1.2. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
+Status: Milestone 1.3. A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
 
 ## Use
 
@@ -26,9 +26,9 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 
 | Language | Extensions | Symbols, signatures, parameters, call sites | Export detection | Import resolution |
 | --- | --- | --- | --- | --- |
-| TypeScript | ts, tsx, mts, cts | yes | `export` | relative specifiers to project files |
-| JavaScript | js, jsx, mjs, cjs | yes | `export` | relative specifiers to project files |
-| Rust | rs | yes | `pub` | none |
+| TypeScript | ts, tsx, mts, cts | yes | `export`, `export { a }`, `export default a` | relative specifiers to project files |
+| JavaScript | js, jsx, mjs, cjs | yes | same; unknown in files with no `import` or `export` | relative specifiers to project files |
+| Rust | rs | yes | a `pub` modifier is present (not reachability) | none |
 | Python | py | yes | none | none |
 
 ## What the output does and does not claim
@@ -37,13 +37,24 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 - Every call site and import is reported with its file, line and column. That position is the evidence.
 - A call is `Inferred` when exactly one project function or method has that name (same file first, then the whole project). It is a name match. It was not type-checked or observed.
 - A call is `Unresolved` when no name or several names match. The note says which. Library calls, built-ins and dynamic calls land here.
-- `f()` is matched to functions, `x.f()` to methods, and Rust `a::f()` to either.
+- `f()` is matched to functions, `new X()` to classes, and Rust `a::f()` to functions or methods.
+- `this.f()` and `self.f()` are matched to methods. Any other `x.f()` is never linked, because the type of `x` is unknown: `console.log()` must not link to a project method called `log`. The note gives the number of methods with that name.
+- Every symbol, import and call carries an evidence class in JSON (`evidence`) and in the HTML report:
+  - `Syntax`: written in the source at that position. All symbols, unresolved imports, unresolved calls.
+  - `StaticAnalysis`: an import matched to a project file by path convention. `tsconfig` paths and `package.json` exports are not read.
+  - `Inferred`: a call matched to a symbol by name.
+  - `RuntimeObserved`, `TestResult` and `AiSuggestion` exist as classes but nothing produces them yet.
+- "Exported" in a script file means an `export` names the symbol. A file with no `import` or `export` may be CommonJS, so its symbols are reported as unknown, not as "not exported".
+- For Rust the flag only means a `pub` modifier is present, including `pub(crate)`. It does not mean the item is reachable from outside the crate.
+- `graph` returns at most 5000 edges. When more exist, the output says so (`"truncated": true` in JSON).
 - `explain` describes structure: where a function is, its signature, what it calls, what calls it. It does not say what the code does.
 - Symbol ids are a hash of file path, qualified name and kind. They survive edits and moves within a file. They change on rename or file move.
 
 ## Not done yet
 
-- No Rust or Python import resolution. No `require()`, re-exports or path aliases.
+- Rust calls written inside macros (`println!("{}", f())`, `assert!(g())`) are not seen at all: macro arguments are not parsed as code.
+- Python `K()` is not linked to class `K`. Generic Rust calls `f::<T>()` and computed callees are not recorded.
+- No Rust or Python import resolution. No `require()`, CommonJS exports, re-exports or path aliases.
 - No type references, inheritance, or data flow.
 - No documentation comments.
 - No secret redaction: signatures are copied verbatim, including default values.

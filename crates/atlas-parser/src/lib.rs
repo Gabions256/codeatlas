@@ -147,6 +147,8 @@ impl LanguageAdapter for SyntaxAdapter {
             src: source.as_bytes(),
             scopes: Vec::new(),
             seen: HashMap::new(),
+            exported_names: Vec::new(),
+            esm: false,
             out: FileAnalysis {
                 path: path.to_string(),
                 language: self.id.to_string(),
@@ -180,7 +182,23 @@ impl LanguageAdapter for SyntaxAdapter {
             }
         }
 
+        let (exported_names, esm) = (walk.exported_names, walk.esm);
         let mut out = walk.out;
+        if self.family == Family::Script {
+            // Only top-level script symbols hold `Some` at this point.
+            for symbol in &mut out.symbols {
+                if symbol.exported != Some(false) {
+                    continue;
+                }
+                if exported_names.contains(&symbol.name) {
+                    symbol.exported = Some(true);
+                } else if !esm {
+                    // No module syntax at all: may be CommonJS, where
+                    // exports are assignments we do not read. Unknown.
+                    symbol.exported = None;
+                }
+            }
+        }
         if !out.diagnostics.is_empty() {
             out.parse_status = ParseStatus::ParsedWithErrors;
         }
@@ -202,6 +220,10 @@ struct Walk<'a> {
     scopes: Vec<Scope>,
     /// Occurrences of each id key, to keep duplicate declarations apart.
     seen: HashMap<String, u32>,
+    /// Script only: names listed in `export { a }` or `export default a`.
+    exported_names: Vec<String>,
+    /// Script only: the file has an `import` or `export` statement.
+    esm: bool,
     out: FileAnalysis,
 }
 
@@ -230,6 +252,10 @@ impl<'a> Walk<'a> {
         if self.import(node) || self.call(node) {
             return;
         }
+        if self.family == Family::Script && node.kind() == "export_statement" {
+            self.export_names(node);
+            return;
+        }
         if self.family == Family::Rust && node.kind() == "impl_item" {
             // `impl Foo<T>` scopes its methods under `Foo` without being a symbol.
             if let Some(ty) = self.field_text(node, "type") {
@@ -246,7 +272,52 @@ impl<'a> Walk<'a> {
         self.symbol(node, depth);
     }
 
+    /// Records names exported apart from their declaration:
+    /// `export { a, b as c }` and `export default a`.
+    fn export_names(&mut self, node: Node) {
+        self.esm = true;
+        // `export { a } from './x'` re-exports another module's `a`.
+        if node.child_by_field_name("source").is_some() {
+            return;
+        }
+        if let Some(value) = node.child_by_field_name("value") {
+            if value.kind() == "identifier" {
+                self.exported_names
+                    .extend(self.text(value).map(str::to_string));
+            }
+        }
+        for clause in node.named_children(&mut node.walk()) {
+            if clause.kind() != "export_clause" {
+                continue;
+            }
+            for specifier in clause.named_children(&mut clause.walk()) {
+                self.exported_names
+                    .extend(self.field_text(specifier, "name").map(str::to_string));
+            }
+        }
+    }
+
+    /// `x.f()` callee: the name, and whether the receiver is the enclosing
+    /// object. Python's `self` is a convention, not a keyword.
+    fn member(&self, function: Node, name: &str, receiver: &str) -> Option<(&'a str, CallForm)> {
+        let own = match self.family {
+            Family::Script => "this",
+            Family::Rust | Family::Python => "self",
+        };
+        let form = match function
+            .child_by_field_name(receiver)
+            .and_then(|r| self.text(r))
+        {
+            Some(text) if text == own => CallForm::SelfMember,
+            _ => CallForm::Member,
+        };
+        self.field_text(function, name).map(|n| (n, form))
+    }
+
     fn import(&mut self, node: Node) -> bool {
+        if self.family == Family::Script && node.kind() == "import_statement" {
+            self.esm = true;
+        }
         let sources: Vec<&str> = match (self.family, node.kind()) {
             (Family::Script, "import_statement") => self
                 .field_text(node, "source")
@@ -283,24 +354,20 @@ impl<'a> Walk<'a> {
             Family::Python => node.kind() == "call",
             _ => node.kind() == "call_expression",
         };
-        if !is_call {
+        let is_new = self.family == Family::Script && node.kind() == "new_expression";
+        if !is_call && !is_new {
             return false;
         }
-        let Some(function) = node.child_by_field_name("function") else {
+        let field = if is_new { "constructor" } else { "function" };
+        let Some(function) = node.child_by_field_name(field) else {
             return true;
         };
         let callee = match function.kind() {
             "identifier" => self.text(function).map(|n| (n, CallForm::Bare)),
             // x.f() in Script, Rust and Python respectively.
-            "member_expression" => self
-                .field_text(function, "property")
-                .map(|n| (n, CallForm::Member)),
-            "field_expression" => self
-                .field_text(function, "field")
-                .map(|n| (n, CallForm::Member)),
-            "attribute" => self
-                .field_text(function, "attribute")
-                .map(|n| (n, CallForm::Member)),
+            "member_expression" => self.member(function, "property", "object"),
+            "field_expression" => self.member(function, "field", "value"),
+            "attribute" => self.member(function, "attribute", "object"),
             "scoped_identifier" => self
                 .field_text(function, "name")
                 .map(|n| (n, CallForm::Path)),
@@ -308,6 +375,7 @@ impl<'a> Walk<'a> {
             _ => None,
         };
         if let Some((name, form)) = callee {
+            let form = if is_new { CallForm::New } else { form };
             self.out.calls.push(CallSite {
                 caller_id: self.scopes.iter().rev().find_map(|s| s.id.clone()),
                 callee: name.to_string(),
@@ -579,7 +647,7 @@ mod tests {
                 (Some("pay"), "total", CallForm::Bare),
                 (Some("pay"), "info", CallForm::Member),
                 (Some("twice"), "pay", CallForm::Bare),
-                (Some("S.run"), "pay", CallForm::Member),
+                (Some("S.run"), "pay", CallForm::SelfMember),
             ]
         );
     }
@@ -694,10 +762,90 @@ mod tests {
             calls(&a),
             [
                 (Some("Shop.pay"), "total", CallForm::Bare),
-                (Some("Shop.pay"), "log", CallForm::Member),
+                (Some("Shop.pay"), "log", CallForm::SelfMember),
                 (Some("total"), "len", CallForm::Bare),
             ]
         );
+    }
+
+    #[test]
+    fn exports_named_apart_from_the_declaration() {
+        let a = analyze(
+            "function a() {}\nfunction b() {}\nfunction c() {}\nfunction d() {}\nfunction e() {}\n\
+             export { a, b as other };\nexport default c;\nexport { e } from './e';\n",
+        );
+        let exported: Vec<_> = a
+            .symbols
+            .iter()
+            .map(|s| (s.name.as_str(), s.exported))
+            .collect();
+        assert_eq!(
+            exported,
+            [
+                ("a", Some(true)),
+                ("b", Some(true)),
+                ("c", Some(true)),
+                ("d", Some(false)),
+                // Re-exported from another module: not this `e`.
+                ("e", Some(false)),
+            ]
+        );
+    }
+
+    #[test]
+    fn files_without_module_syntax_do_not_claim_not_exported() {
+        let cjs = analyze_as("x.js", "function used() {}\nmodule.exports = { used };\n");
+        assert_eq!(cjs.symbols[0].exported, None);
+        // One import is enough to make `export` the only way out.
+        let esm = analyze_as("y.js", "import './x';\nfunction hidden() {}\n");
+        assert_eq!(esm.symbols[0].exported, Some(false));
+    }
+
+    #[test]
+    fn receivers_and_constructors() {
+        let forms = |file: &str, src: &str| -> Vec<(String, CallForm)> {
+            let a = analyze_as(file, src);
+            a.calls.iter().map(|c| (c.callee.clone(), c.form)).collect()
+        };
+        let n = |form| ("n".to_string(), form);
+        assert_eq!(
+            forms(
+                "a.ts",
+                "class K { m() { this.n(); other.n(); self.n(); new K(); new ns.K(1); } n() {} }"
+            ),
+            [
+                n(CallForm::SelfMember),
+                n(CallForm::Member),
+                // `self` is an ordinary variable in scripts.
+                n(CallForm::Member),
+                ("K".to_string(), CallForm::New),
+                ("K".to_string(), CallForm::New),
+            ]
+        );
+        assert_eq!(
+            forms(
+                "a.rs",
+                "struct S; impl S { fn m(&self, o: S) { self.n(); o.n(); } fn n(&self) {} }"
+            ),
+            [n(CallForm::SelfMember), n(CallForm::Member)]
+        );
+        assert_eq!(
+            forms(
+                "a.py",
+                "class C:\n    def m(self, o):\n        self.n()\n        o.n()\n"
+            ),
+            [n(CallForm::SelfMember), n(CallForm::Member)]
+        );
+    }
+
+    /// Documented blind spot: macro arguments are unparsed token trees.
+    #[test]
+    fn rust_calls_inside_macros_are_not_seen() {
+        let a = analyze_as(
+            "a.rs",
+            "fn h() -> u32 { 1 }\nfn main() { println!(\"{}\", h()); }\n",
+        );
+        assert!(a.calls.is_empty());
     }
 
     #[test]
