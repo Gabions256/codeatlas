@@ -31,4 +31,10 @@ Prints a JSON report to stdout: per file, the declared symbols (functions, metho
 
 A C compiler is required to build the Tree-sitter grammars.
 
+Minimum supported Rust version (MSRV): 1.90, set by `rust-version` in `Cargo.toml`. CI checks it alongside stable on Linux, Windows and macOS, builds the docs, and runs `cargo deny check` (advisories, licences, bans, sources; config in `deny.toml`).
+
+## Release
+
+Bump `version` under `[workspace.package]` in `Cargo.toml`, merge, then push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The release workflow creates a draft GitHub release with `atlas` binaries for Linux x86_64, Windows x86_64 and macOS arm64, plus SHA-256 checksums. Review and publish the draft by hand.
+
 Licence: Apache-2.0.
