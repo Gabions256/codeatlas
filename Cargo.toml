@@ -16,7 +16,7 @@ repository = "https://github.com/Gabions256/codeatlas"
 [workspace.dependencies]
 atlas-domain = { path = "crates/atlas-domain" }
 atlas-parser = { path = "crates/atlas-parser" }
-atlas-index = { path = "crates/atlas-index" }
+atlas-index = { path = "crates/atlas-index", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 rusqlite = { version = "0.42", features = ["bundled"] }
