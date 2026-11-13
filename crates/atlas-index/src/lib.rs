@@ -369,7 +369,7 @@ impl Index {
                 }
                 Ok(Some((analysis, hash))) => {
                     delete_file(&tx, previous)?;
-                    insert_file(&tx, &analysis, &hash)?;
+                    summary.warnings.extend(insert_file(&tx, &analysis, &hash)?);
                     summary.reparsed += 1;
                 }
                 Err(reason) => {
@@ -796,18 +796,23 @@ fn delete_file(tx: &Transaction, entry: Option<(i64, String)>) -> Result<()> {
     Ok(())
 }
 
-fn insert_file(tx: &Transaction, a: &FileAnalysis, hash: &str) -> Result<()> {
+/// Writes one parsed file. Returns warnings for symbols that could not be
+/// stored.
+fn insert_file(tx: &Transaction, a: &FileAnalysis, hash: &str) -> Result<Vec<String>> {
     tx.execute(
         "INSERT INTO files (path, language, hash, parse_status) VALUES (?1, ?2, ?3, ?4)",
         params![a.path, a.language, hash, format!("{:?}", a.parse_status)],
     )?;
     let file_id = tx.last_insert_rowid();
+    let mut warnings = Vec::new();
 
+    // Ids are 64-bit hashes. A collision with a symbol already stored is
+    // astronomically rare, but must cost one symbol, not the whole scan.
     let mut stmt = tx.prepare_cached(
-        "INSERT INTO symbols VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT OR IGNORE INTO symbols VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
     )?;
     for s in &a.symbols {
-        stmt.execute(params![
+        let stored = stmt.execute(params![
             s.id,
             file_id,
             s.name,
@@ -821,6 +826,12 @@ fn insert_file(tx: &Transaction, a: &FileAnalysis, hash: &str) -> Result<()> {
             s.range.end_line,
             s.range.end_column,
         ])?;
+        if stored == 0 {
+            warnings.push(format!(
+                "{}: symbol `{}` not indexed: its id collides with another symbol",
+                a.path, s.qualified_name
+            ));
+        }
     }
     let mut stmt =
         tx.prepare_cached("INSERT INTO imports (file_id, source, line) VALUES (?1, ?2, ?3)")?;
@@ -850,7 +861,7 @@ fn insert_file(tx: &Transaction, a: &FileAnalysis, hash: &str) -> Result<()> {
             d.range.start_column
         ])?;
     }
-    Ok(())
+    Ok(warnings)
 }
 
 /// TypeScript and JavaScript import and call each other freely.
@@ -1048,4 +1059,57 @@ fn resolve_script_import(
         tries.push(format!("{stem}.tsx"));
     }
     tries.iter().find_map(|path| files.get(path).copied())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use atlas_domain::{ParseStatus, SourceRange, Symbol, SymbolKind};
+
+    fn file(path: &str, id: &str) -> FileAnalysis {
+        let range = SourceRange {
+            start_line: 1,
+            start_column: 1,
+            end_line: 1,
+            end_column: 2,
+        };
+        FileAnalysis {
+            path: path.into(),
+            language: "typescript".into(),
+            parse_status: ParseStatus::Parsed,
+            symbols: vec![Symbol {
+                id: id.into(),
+                name: "f".into(),
+                qualified_name: "f".into(),
+                kind: SymbolKind::Function,
+                signature: None,
+                parameters: Vec::new(),
+                signature_digest: None,
+                exported: None,
+                range,
+            }],
+            imports: Vec::new(),
+            calls: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn colliding_symbol_id_costs_one_symbol_not_the_scan() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+        let tx = conn.transaction().unwrap();
+        assert!(insert_file(&tx, &file("a.ts", "same"), "h1")
+            .unwrap()
+            .is_empty());
+        let warnings = insert_file(&tx, &file("b.ts", "same"), "h2").unwrap();
+        assert_eq!(
+            warnings,
+            ["b.ts: symbol `f` not indexed: its id collides with another symbol"]
+        );
+        let files: i64 = tx
+            .query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(files, 2);
+    }
 }

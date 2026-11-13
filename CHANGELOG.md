@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.1
+
+### Fixed
+
+- Two symbols whose 64-bit ids collide no longer abort the scan. The second one is left out of the index and the scan prints a warning naming it.
+- `cargo binstall` metadata names the archive suffix exactly (`.tar.gz`, `.zip`).
+
+### Release process
+
+- The Intel macOS binary is now run in the release smoke test, under Rosetta. Before, it was built but never executed.
+
+### Measured
+
+On Windows, a generated TypeScript project of 1,500 files (15,000 functions, 45,000 call sites): full index build 1.9 s, rescan with nothing changed 0.4 s, rescan after one edit 0.45 s, `graph dependents --depth 3` 77 ms, index 10 MB. The very first read of freshly written files took 21 s; that is operating-system and antivirus cost, not the engine.
+
 ## 0.1.0
 
 First public release. A local, offline command-line tool: no AI, no network access, no telemetry.
