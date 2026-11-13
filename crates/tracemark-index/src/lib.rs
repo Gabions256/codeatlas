@@ -7,6 +7,7 @@
 
 mod changes;
 mod html;
+mod review;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -19,6 +20,7 @@ use tracemark_parser::LanguageAdapter;
 
 pub use changes::{Change, ChangeReport, FileChange, SymbolChange};
 pub use html::render as render_html;
+pub use review::{render_markdown, Finding, Recommendation, Review, Severity, RULES};
 
 #[derive(Debug)]
 pub struct Error(pub String);

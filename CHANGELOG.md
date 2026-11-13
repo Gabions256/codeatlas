@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+### New: review a change before approving it
+
+- `tracemark review --base <commit>` applies six fixed rules to the change and recommends one of: request changes, review carefully, approve after checks, or no rule flagged a risk. The rules are `removed-still-called`, `syntax-errors-added`, `signature-callers-untouched`, `wide-impact`, `no-test-calls` and `not-analysed`.
+- Each finding names its rule, severity, file, line and evidence class, and lists the call sites behind it.
+- `--markdown` prints a pull-request comment in which project names cannot add links, mentions or HTML. `--json` prints everything. `--fail-on` exits with code 3 for CI.
+- New GitHub Action `Gabions256/tracemark@v0.3.0` posts the review on every pull request and updates the same comment on each push.
+- `changes` JSON now includes `syntax_errors` and `syntax_errors_before` per file.
+
+Still structure only. Nothing is run, built or tested, and no AI is involved.
+
 ## 0.2.0
 
 CodeAtlas is now **Tracemark**. It traces every connection and marks each result with its evidence. The name changed because other code-intelligence projects already publish as "CodeAtlas", and because the `atlas` command clashed with an unrelated Homebrew tool. Behaviour is unchanged.

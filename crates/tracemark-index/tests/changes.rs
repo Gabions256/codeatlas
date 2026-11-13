@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tracemark_domain::Evidence;
-use tracemark_index::{Change, ChangeReport, Index};
+use tracemark_index::{
+    render_markdown, Change, ChangeReport, Index, Recommendation, Review, Severity,
+};
 
 fn git(root: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -230,4 +232,150 @@ fn changed_redacted_default_is_a_signature_change() {
     );
     let json = serde_json::to_string(&report).unwrap();
     assert!(!json.contains("sk-old-111") && !json.contains("sk-new-222"));
+}
+
+/// `(rule, severity, symbol)` per finding.
+fn rules(review: &Review) -> Vec<(&str, Severity, Option<&str>)> {
+    review
+        .findings
+        .iter()
+        .map(|f| (f.rule, f.severity, f.symbol.as_deref()))
+        .collect()
+}
+
+#[test]
+fn removed_function_still_called_requests_changes() {
+    let root = repo(
+        "review-removed",
+        &[
+            (
+                "lib.ts",
+                "export function gone() {}\nexport function kept() {}\n",
+            ),
+            (
+                "app.ts",
+                "import { gone } from './lib';\nfunction main() { gone(); }\n",
+            ),
+        ],
+    );
+    write(&root, "lib.ts", "export function kept() {}\n");
+    let review = Index::open(&root).unwrap().review("HEAD", 2).unwrap();
+    assert_eq!(review.recommendation, Recommendation::RequestChanges);
+    assert_eq!(
+        rules(&review),
+        [("removed-still-called", Severity::Blocker, Some("gone"))]
+    );
+    let site = &review.findings[0].sites[0];
+    assert_eq!((site.path.as_str(), site.line), ("app.ts", 2));
+    assert_eq!(site.evidence, Evidence::Syntax);
+}
+
+#[test]
+fn signature_change_flags_only_callers_outside_the_change() {
+    let root = repo(
+        "review-signature",
+        &[
+            ("lib.ts", "export function pay(a: number) { return a; }\n"),
+            ("far.ts", "function far() { pay(1); }\n"),
+            ("near.ts", "function near() { pay(1); }\n"),
+        ],
+    );
+    write(
+        &root,
+        "lib.ts",
+        "export function pay(a: number, b: number) { return a + b; }\n",
+    );
+    // near.ts is updated in the same change, far.ts is not.
+    write(&root, "near.ts", "function near() { pay(1, 2); }\n");
+    let review = Index::open(&root).unwrap().review("HEAD", 1).unwrap();
+    assert_eq!(review.recommendation, Recommendation::ReviewCarefully);
+    let finding = review
+        .findings
+        .iter()
+        .find(|f| f.rule == "signature-callers-untouched")
+        .unwrap();
+    assert_eq!(finding.severity, Severity::High);
+    let paths: Vec<_> = finding.sites.iter().map(|e| e.path.as_str()).collect();
+    assert_eq!(paths, ["far.ts"]);
+    assert_eq!(finding.evidence, Evidence::Inferred);
+}
+
+#[test]
+fn new_syntax_errors_are_high() {
+    let root = repo("review-syntax", &[("a.ts", "export function a() {}\n")]);
+    write(
+        &root,
+        "a.ts",
+        "export function a() {}\nfunction broken( {\n",
+    );
+    let review = Index::open(&root).unwrap().review("HEAD", 1).unwrap();
+    assert!(rules(&review).contains(&("syntax-errors-added", Severity::High, None)));
+    assert_eq!(review.recommendation, Recommendation::ReviewCarefully);
+}
+
+#[test]
+fn wide_impact_is_medium_and_tests_are_recognised() {
+    let mut callers = String::from("import { core } from './core';\n");
+    for i in 0..10 {
+        callers.push_str(&format!("export function c{i}() {{ return core(); }}\n"));
+    }
+    let root = repo(
+        "review-wide",
+        &[
+            ("core.ts", "export function core() { return 1; }\n"),
+            ("callers.ts", &callers),
+            (
+                "core.test.ts",
+                "import { core } from './core';\ntest('core', () => core());\n",
+            ),
+        ],
+    );
+    write(&root, "core.ts", "export function core() { return 2; }\n");
+    let review = Index::open(&root).unwrap().review("HEAD", 1).unwrap();
+    assert_eq!(review.recommendation, Recommendation::ApproveAfterChecks);
+    // `core` is called from core.test.ts, so no `no-test-calls` finding.
+    assert_eq!(
+        rules(&review),
+        [("wide-impact", Severity::Medium, Some("core"))]
+    );
+}
+
+#[test]
+fn untested_change_alone_flags_no_risk_but_says_so() {
+    let root = repo("review-clean", &[("a.py", "def total(x):\n    return x\n")]);
+    write(&root, "a.py", "def total(x):\n    return x + 1\n");
+    write(&root, "notes.md", "changed\n");
+    // A helper inside a test file is test code: not flagged.
+    write(&root, "a_test.py", "def helper():\n    return 1\n");
+    let review = Index::open(&root).unwrap().review("HEAD", 1).unwrap();
+    assert_eq!(review.recommendation, Recommendation::NoRuleFlagged);
+    assert!(review.reason.contains("not proof"));
+    assert_eq!(
+        rules(&review),
+        [
+            ("no-test-calls", Severity::Info, Some("total")),
+            ("not-analysed", Severity::Info, None),
+        ]
+    );
+    assert!(review.limitations[0].contains("did not run, build or test"));
+}
+
+#[test]
+fn markdown_cannot_be_hijacked_by_project_names() {
+    let root = repo(
+        "review-markdown",
+        &[(
+            "a.ts",
+            "export function gone() {}\nfunction main() { gone(); }\n",
+        )],
+    );
+    write(&root, "a.ts", "function main() { gone(); }\n");
+    write(&root, "`@evil`.md", "hi\n");
+    let review = Index::open(&root).unwrap().review("HEAD", 1).unwrap();
+    let md = render_markdown(&review);
+    assert!(md.starts_with("### Tracemark review: Request changes"));
+    // The file name is inside a code span: no live mention, no broken table.
+    assert!(md.contains("| `'@evil'.md` |"), "{md}");
+    assert!(!md.contains("`@evil`"));
+    assert!(md.contains("did not run, build or test"));
 }

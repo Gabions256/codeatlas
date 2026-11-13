@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use tracemark_index::{Direction, Edge, Index};
+use tracemark_index::{Direction, Edge, Index, Review, Severity};
 
 #[derive(Parser)]
 #[command(
@@ -56,6 +56,22 @@ enum Command {
         #[arg(long, default_value_t = 1)]
         depth: u32,
     },
+    /// Review the change since a git commit: findings from fixed rules and a
+    /// recommendation. Structure only: nothing is run, built or tested.
+    Review {
+        /// Commit to compare the working tree with.
+        #[arg(long, default_value = "HEAD")]
+        base: String,
+        /// Caller hops to follow from each changed symbol.
+        #[arg(long, default_value_t = 2)]
+        depth: u32,
+        /// Print Markdown for a pull-request comment.
+        #[arg(long)]
+        markdown: bool,
+        /// Exit with code 3 when a finding at or above this severity exists.
+        #[arg(long, value_enum, default_value = "never")]
+        fail_on: FailOn,
+    },
     /// Print a project report to stdout.
     Report {
         #[arg(long, value_enum, default_value = "html")]
@@ -101,6 +117,14 @@ enum ExplainCommand {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+enum FailOn {
+    Never,
+    Blocker,
+    High,
+    Medium,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 enum Format {
     Html,
     Json,
@@ -109,6 +133,52 @@ enum Format {
 fn print_json<T: serde::Serialize>(value: &T) -> tracemark_index::Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
+}
+
+fn print_review(review: &Review) {
+    let changes = &review.changes;
+    let short = changes.base_commit.get(..7).unwrap_or(&changes.base_commit);
+    println!("Recommendation: {}", review.recommendation.label());
+    println!("{}", review.reason);
+    println!(
+        "Compared with {} ({short}). {} file(s) changed. Index rescanned first.",
+        changes.base,
+        changes.files.len()
+    );
+    for f in &review.findings {
+        let place = if f.line > 0 {
+            format!("{}:{}", f.path, f.line)
+        } else {
+            f.path.clone()
+        };
+        let symbol = f.symbol.as_deref().unwrap_or("");
+        println!(
+            "
+{:<8} {}  {place}  {symbol}  [{}]",
+            f.severity.label().to_uppercase(),
+            f.rule,
+            f.evidence.label()
+        );
+        println!("  {}", f.message);
+        for e in &f.sites {
+            println!(
+                "    {} -> {}  {}:{}:{}  [{}]",
+                e.from,
+                e.to,
+                e.path,
+                e.line,
+                e.column,
+                e.evidence.label()
+            );
+        }
+    }
+    println!(
+        "
+Limitations:"
+    );
+    for limitation in &review.limitations {
+        println!("- {limitation}");
+    }
 }
 
 fn print_edges(edges: &[Edge]) {
@@ -125,7 +195,10 @@ fn run(cli: Cli) -> tracemark_index::Result<()> {
         Command::Scan { path: Some(path) } => path.clone(),
         _ => cli.project.clone(),
     };
-    let scans = matches!(cli.command, Command::Scan { .. } | Command::Changes { .. });
+    let scans = matches!(
+        cli.command,
+        Command::Scan { .. } | Command::Changes { .. } | Command::Review { .. }
+    );
     if !scans && !Index::exists(&root) {
         return Err(tracemark_index::Error(format!(
             "no index in {}: run `tracemark scan` first",
@@ -288,6 +361,32 @@ fn run(cli: Cli) -> tracemark_index::Result<()> {
             println!("\nLimitations:");
             for limitation in &report.limitations {
                 println!("- {limitation}");
+            }
+        }
+        Command::Review {
+            base,
+            depth,
+            markdown,
+            fail_on,
+        } => {
+            let review = index.review(&base, depth)?;
+            if cli.json {
+                print_json(&review)?;
+            } else if markdown {
+                print!("{}", tracemark_index::render_markdown(&review));
+            } else {
+                print_review(&review);
+            }
+            let threshold = match fail_on {
+                FailOn::Never => None,
+                FailOn::Blocker => Some(Severity::Blocker),
+                FailOn::High => Some(Severity::High),
+                FailOn::Medium => Some(Severity::Medium),
+            };
+            if threshold.is_some_and(|t| review.findings.iter().any(|f| f.severity >= t)) {
+                // exit() skips destructors, so flush what was printed first.
+                std::io::Write::flush(&mut std::io::stdout())?;
+                std::process::exit(3);
             }
         }
         Command::Report { format } => {

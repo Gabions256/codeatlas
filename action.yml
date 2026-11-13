@@ -1,0 +1,114 @@
+name: Tracemark review
+description: 'Review a pull request''s structural changes with Tracemark and post the findings and a recommendation as one comment.'
+branding:
+  icon: git-pull-request
+  color: blue
+
+inputs:
+  version:
+    description: 'Tracemark release to download, without the leading v.'
+    default: "0.3.0"
+  install:
+    description: 'Download Tracemark. Set to "false" when `tracemark` is already on PATH.'
+    default: "true"
+  depth:
+    description: 'Caller hops to follow from each changed symbol.'
+    default: "2"
+  fail-on:
+    description: 'Fail the job when a finding at or above this severity exists (never, blocker, high, medium).'
+    default: "never"
+  comment:
+    description: 'Post or update a pull-request comment with the review.'
+    default: "true"
+  token:
+    description: 'Token used to write the comment. Needs `pull-requests: write`.'
+    default: ${{ github.token }}
+
+outputs:
+  recommendation:
+    description: 'The recommendation line, for example "Request changes".'
+    value: ${{ steps.review.outputs.recommendation }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install tracemark
+      if: inputs.install == 'true'
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) target=x86_64-unknown-linux-musl; ext=tar.gz ;;
+          macOS-ARM64) target=aarch64-apple-darwin; ext=tar.gz ;;
+          macOS-X64) target=x86_64-apple-darwin; ext=tar.gz ;;
+          Windows-X64) target=x86_64-pc-windows-msvc; ext=zip ;;
+          *) echo "::error::Tracemark has no release build for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+        esac
+        case "$VERSION" in
+          *[!0-9A-Za-z.-]*|"") echo "::error::invalid version '$VERSION'"; exit 1 ;;
+        esac
+        name="tracemark-v${VERSION}-${target}"
+        dir="$RUNNER_TEMP/tracemark"
+        mkdir -p "$dir" && cd "$dir"
+        url="https://github.com/Gabions256/tracemark/releases/download/v${VERSION}"
+        curl -fsSL -o "$name.$ext" "$url/$name.$ext"
+        curl -fsSL -o "$name.$ext.sha256" "$url/$name.$ext.sha256"
+        if command -v sha256sum >/dev/null; then sha256sum -c "$name.$ext.sha256"
+        else shasum -a 256 -c "$name.$ext.sha256"; fi
+        if [ "$ext" = zip ]; then unzip -q "$name.$ext"; else tar xzf "$name.$ext"; fi
+        echo "$dir/$name" >> "$GITHUB_PATH"
+
+    - name: Review
+      id: review
+      shell: bash
+      env:
+        DEPTH: ${{ inputs.depth }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        # On pull_request the checkout is a merge commit; its first parent is
+        # the base branch, so HEAD^1 to the working tree is the PR's change.
+        git rev-parse -q --verify 'HEAD^1' >/dev/null || git fetch -q --no-tags --deepen=1 origin
+        out="$RUNNER_TEMP/tracemark-review.md"
+        set +e
+        tracemark review --base 'HEAD^1' --depth "$DEPTH" --fail-on "$FAIL_ON" --markdown > "$out"
+        status=$?
+        set -e
+        if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
+          cat "$out"
+          echo "::error::tracemark review failed with exit code $status"
+          exit "$status"
+        fi
+        cat "$out" >> "$GITHUB_STEP_SUMMARY"
+        echo "recommendation=$(head -1 "$out" | sed 's/^### Tracemark review: //')" >> "$GITHUB_OUTPUT"
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+
+    - name: Comment
+      if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        marker='<!-- tracemark-review -->'
+        body="$RUNNER_TEMP/tracemark-comment.md"
+        { echo "$marker"; cat "$RUNNER_TEMP/tracemark-review.md"; } > "$body"
+        id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -1) || id=""
+        # A pull request from a fork gets a read-only token: report, don't fail.
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$body" >/dev/null \
+            || echo "::warning::could not update the review comment (read-only token?)"
+        else
+          gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --body-file "$body" \
+            || echo "::warning::could not post the review comment (read-only token?)"
+        fi
+
+    - name: Apply fail-on
+      if: steps.review.outputs.status == '3'
+      shell: bash
+      env:
+        RECOMMENDATION: ${{ steps.review.outputs.recommendation }}
+      run: |
+        echo "::error::Tracemark review: $RECOMMENDATION"
+        exit 1

@@ -63,6 +63,9 @@ pub struct FileChange {
     /// False when the file was not parsed; `note` says why.
     pub analysed: bool,
     pub note: Option<String>,
+    /// Parser diagnostics in the working-tree version, and in the base.
+    pub syntax_errors: u32,
+    pub syntax_errors_before: u32,
     pub symbols: Vec<SymbolChange>,
 }
 
@@ -156,6 +159,8 @@ impl Index {
             status,
             analysed: false,
             note: None,
+            syntax_errors: 0,
+            syntax_errors_before: 0,
             symbols: Vec::new(),
         };
         let extension = change.path.rsplit_once('.').map_or("", |(_, e)| e);
@@ -196,6 +201,11 @@ impl Index {
             }
         };
         change.analysed = true;
+        let errors = |side: &Option<(FileAnalysis, String)>| {
+            side.as_ref().map_or(0, |(a, _)| a.diagnostics.len() as u32)
+        };
+        change.syntax_errors = errors(&after);
+        change.syntax_errors_before = errors(&before);
 
         let old = keyed(before.as_ref());
         let new = keyed(after.as_ref());
