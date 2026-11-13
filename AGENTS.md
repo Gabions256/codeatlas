@@ -1,6 +1,6 @@
 # Rules for AI coding agents
 
-Agents are contributors to CodeAtlas, not unquestioned authorities.
+Agents are contributors to Tracemark, not unquestioned authorities.
 
 1. Never claim an implementation is complete without running relevant tests.
 2. Never invent functions, interfaces or dependencies.

@@ -1,5 +1,5 @@
 [package]
-name = "atlas-cli"
+name = "tracemark-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,11 +8,11 @@ repository.workspace = true
 description = "Local code intelligence: index a project and see every symbol, call and import with its evidence."
 
 [[bin]]
-name = "atlas"
+name = "tracemark"
 path = "src/main.rs"
 
 [dependencies]
-atlas-index.workspace = true
+tracemark-index.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -20,14 +20,14 @@ serde_json.workspace = true
 [lints]
 workspace = true
 
-# `cargo binstall --git https://github.com/Gabions256/codeatlas atlas-cli`
+# `cargo binstall --git https://github.com/Gabions256/tracemark tracemark-cli`
 # downloads the release archive instead of compiling. Names must match the
 # Package step in .github/workflows/release.yml.
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/atlas-v{ version }-{ target }.tar.gz"
-bin-dir = "atlas-v{ version }-{ target }/{ bin }{ binary-ext }"
+pkg-url = "{ repo }/releases/download/v{ version }/tracemark-v{ version }-{ target }.tar.gz"
+bin-dir = "tracemark-v{ version }-{ target }/{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
-pkg-url = "{ repo }/releases/download/v{ version }/atlas-v{ version }-{ target }.zip"
+pkg-url = "{ repo }/releases/download/v{ version }/tracemark-v{ version }-{ target }.zip"
 pkg-fmt = "zip"

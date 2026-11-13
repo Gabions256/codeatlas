@@ -1,12 +1,12 @@
 [package]
-name = "atlas-parser"
+name = "tracemark-parser"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-atlas-domain.workspace = true
+tracemark-domain.workspace = true
 tree-sitter.workspace = true
 tree-sitter-typescript.workspace = true
 tree-sitter-javascript.workspace = true

@@ -4,26 +4,26 @@
 
 ## 1. Project
 
-- CodeAtlas. Repository: https://github.com/Gabions256/codeatlas. Owner: Gabions256. Licence: Apache-2.0.
+- Tracemark (named CodeAtlas until 0.1.1). Repository: https://github.com/Gabions256/tracemark. Owner: Gabions256. Licence: Apache-2.0.
 - Tagline: Understand every line. See every connection. Trust every change.
 - An open-source, local-first code intelligence tool. It helps developers, beginners included, understand codebases, especially code written by AI agents.
 - The owner decides product direction and major architecture. The agent executes, gathers evidence and recommends.
 
 ## 2. Architecture
 
-Target: one Rust core, three interfaces (CLI `atlas`, MCP server over stdio, Tauri + React desktop).
+Target: one Rust core, three interfaces (CLI `tracemark`, MCP server over stdio, Tauri + React desktop).
 
 Current crates (check `Cargo.toml` before trusting this list):
 
-- `atlas-domain` — types only. No internal dependencies, no I/O.
-- `atlas-parser` — Tree-sitter adapters. Depends on domain only.
-- `atlas-index` — the engine: discovery, SQLite index, link resolution, queries, reports.
-- `atlas-cli` — argument parsing and printing. No analysis.
+- `tracemark-domain` — types only. No internal dependencies, no I/O.
+- `tracemark-parser` — Tree-sitter adapters. Depends on domain only.
+- `tracemark-index` — the engine: discovery, SQLite index, link resolution, queries, reports.
+- `tracemark-cli` — argument parsing and printing. No analysis.
 
 Rules:
 
 1. Dependencies point one way: domain ← parser ← index ← interfaces. No interface reimplements analysis.
-2. The planned crates (`atlas-graph`, `atlas-storage`, `atlas-git`, `atlas-mcp`, …) are a direction, not a to-do list. Create a crate only when a second consumer or a real boundary exists. Record it in an ADR.
+2. The planned crates (`tracemark-graph`, `tracemark-storage`, `tracemark-git`, `tracemark-mcp`, …) are a direction, not a to-do list. Create a crate only when a second consumer or a real boundary exists. Record it in an ADR.
 3. Decisions already made (see `docs/adr`): `rusqlite` with bundled SQLite, not SQLx; the index is a rebuildable cache; the `ignore` crate for ignore files.
 4. A new dependency needs a one-line reason in the PR. No dependency for something a few lines of code can do. No dependency that adds network access to the core.
 5. Every architectural change gets an ADR in `docs/adr/NNNN-title.md`: context, decision, why, when to revisit.
@@ -48,7 +48,7 @@ Rules:
 4. Work on a branch. One milestone or fix per PR. Keep PRs small enough to review.
 5. Update a stacked branch by merging its base in. No rebase of pushed branches.
 6. No attribution lines in commits or PR descriptions. No local paths or session links in public text.
-7. Never commit `target/`, `.codeatlas/`, secrets or personal data.
+7. Never commit `target/`, `.tracemark/`, secrets or personal data.
 8. Destructive local commands (`rm -rf`, `git reset --hard`, `git clean`) only on paths the agent created, or with approval.
 
 ## 5. Testing
@@ -74,7 +74,7 @@ Rules:
 ## 6. Security and privacy
 
 1. No source code, file path or index content leaves the machine without explicit, per-feature user consent. The default build has no network code.
-2. Never modify a user's source files. The tool writes only inside `<project>/.codeatlas/`.
+2. Never modify a user's source files. The tool writes only inside `<project>/.tracemark/`.
 3. All text from a scanned project is untrusted: escape it in HTML, bind it in SQL, never execute it.
 4. Do not follow symlinks out of the project root.
 5. CI: least-privilege `permissions`, no `pull_request_target`, no secrets in PR workflows, third-party actions pinned to commit SHAs.

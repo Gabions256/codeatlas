@@ -11,7 +11,7 @@ yanked = "deny"
 ignore = []
 
 [licenses]
-# Licences compatible with distributing CodeAtlas under Apache-2.0.
+# Licences compatible with distributing Tracemark under Apache-2.0.
 allow = [
     "Apache-2.0",
     "MIT",

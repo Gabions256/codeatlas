@@ -1,5 +1,5 @@
 [package]
-name = "atlas-domain"
+name = "tracemark-domain"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

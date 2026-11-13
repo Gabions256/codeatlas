@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+CodeAtlas is now **Tracemark**. It traces every connection and marks each result with its evidence. The name changed because other code-intelligence projects already publish as "CodeAtlas", and because the `atlas` command clashed with an unrelated Homebrew tool. Behaviour is unchanged.
+
+### Breaking: what to change
+
+- The command is `tracemark` instead of `atlas`.
+- The index lives in `<project>/.tracemark/` instead of `.codeatlas/`. The first `tracemark scan` builds a new index. The old `.codeatlas/` folder can be deleted.
+- The project ignore file is `.tracemarkignore` instead of `.codeatlasignore` (same syntax). Rename the file if you have one.
+- Crates are `tracemark-domain`, `tracemark-parser`, `tracemark-index` and `tracemark-cli`.
+- Release archives are named `tracemark-v<version>-<target>`.
+- The repository is `github.com/Gabions256/tracemark`. GitHub redirects the old address.
+- Homebrew: `brew install gabions256/tap/tracemark`. An existing `codeatlas` install is migrated by `brew upgrade`.
+
 ## 0.1.1
 
 ### Fixed

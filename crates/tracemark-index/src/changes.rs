@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use atlas_domain::{Evidence, FileAnalysis, SourceRange, Symbol, SymbolKind};
 use serde::Serialize;
+use tracemark_domain::{Evidence, FileAnalysis, SourceRange, Symbol, SymbolKind};
 
 use crate::{family, Direction, Edge, Error, Index, Result, MAX_EDGES, SKIP_DIRS};
 
@@ -159,7 +159,7 @@ impl Index {
             symbols: Vec::new(),
         };
         let extension = change.path.rsplit_once('.').map_or("", |(_, e)| e);
-        let Some(adapter) = atlas_parser::adapter_for(extension) else {
+        let Some(adapter) = tracemark_parser::adapter_for(extension) else {
             change.note = Some("no language adapter".into());
             return Ok(change);
         };

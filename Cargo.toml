@@ -1,23 +1,23 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/atlas-domain",
-    "crates/atlas-parser",
-    "crates/atlas-index",
-    "crates/atlas-cli",
+    "crates/tracemark-domain",
+    "crates/tracemark-parser",
+    "crates/tracemark-index",
+    "crates/tracemark-cli",
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.90"
-repository = "https://github.com/Gabions256/codeatlas"
+repository = "https://github.com/Gabions256/tracemark"
 
 [workspace.dependencies]
-atlas-domain = { path = "crates/atlas-domain", version = "0.1.1" }
-atlas-parser = { path = "crates/atlas-parser", version = "0.1.1" }
-atlas-index = { path = "crates/atlas-index", version = "0.1.1" }
+tracemark-domain = { path = "crates/tracemark-domain", version = "0.2.0" }
+tracemark-parser = { path = "crates/tracemark-parser", version = "0.2.0" }
+tracemark-index = { path = "crates/tracemark-index", version = "0.2.0" }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 rusqlite = { version = "0.42", features = ["bundled"] }

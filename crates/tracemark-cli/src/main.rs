@@ -1,15 +1,15 @@
 //! Terminal interface. Parsing and presentation only: all analysis is in
-//! `atlas-index`.
+//! `tracemark-index`.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use atlas_index::{Direction, Edge, Index};
 use clap::{Parser, Subcommand, ValueEnum};
+use tracemark_index::{Direction, Edge, Index};
 
 #[derive(Parser)]
 #[command(
-    name = "atlas",
+    name = "tracemark",
     version,
     about = "Local, evidence-first code intelligence"
 )]
@@ -26,7 +26,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Index a project into PATH/.codeatlas. Reparses only changed files.
+    /// Index a project into PATH/.tracemark. Reparses only changed files.
     Scan {
         /// Project root. Defaults to --project.
         path: Option<PathBuf>,
@@ -106,7 +106,7 @@ enum Format {
     Json,
 }
 
-fn print_json<T: serde::Serialize>(value: &T) -> atlas_index::Result<()> {
+fn print_json<T: serde::Serialize>(value: &T) -> tracemark_index::Result<()> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
 }
@@ -120,15 +120,15 @@ fn print_edges(edges: &[Edge]) {
     }
 }
 
-fn run(cli: Cli) -> atlas_index::Result<()> {
+fn run(cli: Cli) -> tracemark_index::Result<()> {
     let root = match &cli.command {
         Command::Scan { path: Some(path) } => path.clone(),
         _ => cli.project.clone(),
     };
     let scans = matches!(cli.command, Command::Scan { .. } | Command::Changes { .. });
     if !scans && !Index::exists(&root) {
-        return Err(atlas_index::Error(format!(
-            "no index in {}: run `atlas scan` first",
+        return Err(tracemark_index::Error(format!(
+            "no index in {}: run `tracemark scan` first",
             root.display()
         )));
     }
@@ -213,7 +213,7 @@ fn run(cli: Cli) -> atlas_index::Result<()> {
         } => {
             let explanations = index.explain_function(&name)?;
             if explanations.is_empty() {
-                return Err(atlas_index::Error(format!(
+                return Err(tracemark_index::Error(format!(
                     "no function or method named `{name}` in the index"
                 )));
             }
@@ -294,7 +294,7 @@ fn run(cli: Cli) -> atlas_index::Result<()> {
             let report = index.report()?;
             match format {
                 Format::Json => return print_json(&report),
-                Format::Html => print!("{}", atlas_index::render_html(&report)),
+                Format::Html => print!("{}", tracemark_index::render_html(&report)),
             }
         }
     }

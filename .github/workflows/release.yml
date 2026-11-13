@@ -48,35 +48,35 @@ jobs:
       - if: contains(matrix.target, 'musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo test --workspace --locked
-      - run: cargo build --release --locked -p atlas-cli --target ${{ matrix.target }}
+      - run: cargo build --release --locked -p tracemark-cli --target ${{ matrix.target }}
       # The Intel Mac binary runs under Rosetta on the Apple Silicon runner.
       - if: matrix.target == 'x86_64-apple-darwin'
         run: softwareupdate --install-rosetta --agree-to-license
       - name: Smoke test the built binary
         shell: bash
         run: |
-          atlas="target/${{ matrix.target }}/release/atlas"
+          tracemark="target/${{ matrix.target }}/release/tracemark"
           if [ "${{ matrix.target }}" = "x86_64-apple-darwin" ]; then
-            file "$atlas" | grep -q x86_64
-            atlas_run() { arch -x86_64 "$atlas" "$@"; }
+            file "$tracemark" | grep -q x86_64
+            tracemark_run() { arch -x86_64 "$tracemark" "$@"; }
           else
-            atlas_run() { "$atlas" "$@"; }
+            tracemark_run() { "$tracemark" "$@"; }
           fi
-          atlas_run --version
-          atlas_run scan fixtures/typescript/sample
-          atlas_run --project fixtures/typescript/sample report --format html | grep -q "CodeAtlas report"
+          tracemark_run --version
+          tracemark_run scan fixtures/typescript/sample
+          tracemark_run --project fixtures/typescript/sample report --format html | grep -q "Tracemark report"
       - name: Package
         shell: bash
         run: |
-          name="atlas-v${VERSION}-${{ matrix.target }}"
+          name="tracemark-v${VERSION}-${{ matrix.target }}"
           mkdir "$name"
           cp LICENSE README.md CHANGELOG.md "$name/"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/atlas.exe" "$name/"
+            cp "target/${{ matrix.target }}/release/tracemark.exe" "$name/"
             7z a "$name.zip" "$name"
             asset="$name.zip"
           else
-            cp "target/${{ matrix.target }}/release/atlas" "$name/"
+            cp "target/${{ matrix.target }}/release/tracemark" "$name/"
             tar czf "$name.tar.gz" "$name"
             asset="$name.tar.gz"
           fi
