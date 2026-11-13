@@ -8,16 +8,16 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.90"
 repository = "https://github.com/Gabions256/tracemark"
 
 [workspace.dependencies]
-tracemark-domain = { path = "crates/tracemark-domain", version = "0.2.0" }
-tracemark-parser = { path = "crates/tracemark-parser", version = "0.2.0" }
-tracemark-index = { path = "crates/tracemark-index", version = "0.2.0" }
+tracemark-domain = { path = "crates/tracemark-domain", version = "0.3.0" }
+tracemark-parser = { path = "crates/tracemark-parser", version = "0.3.0" }
+tracemark-index = { path = "crates/tracemark-index", version = "0.3.0" }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 rusqlite = { version = "0.42", features = ["bundled"] }

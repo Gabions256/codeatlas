@@ -36,6 +36,7 @@ The binaries are not code-signed. Windows SmartScreen and macOS Gatekeeper may w
     tracemark explain function handleCheckout
     tracemark report --format html > report.html
     tracemark changes --base HEAD --depth 2
+    tracemark review --base main
 
 From a checkout, replace `tracemark` with `cargo run -p tracemark-cli --`. Add `--json` to any command for machine-readable output, and `--project <path>` to query a project from elsewhere.
 
@@ -63,6 +64,56 @@ It does not say whether a change works, is correct, or is tested. Other limits:
 - Only the working tree against one commit. Two commits cannot be compared with each other yet.
 
 git is run read-only (`rev-parse`, `diff`, `ls-files`, `cat-file`), never through a shell. A `--base` starting with `-` is rejected. The fsmonitor setting is switched off for these calls, so repository settings cannot start another program, and git's own index file is not rewritten.
+
+## Review a change before you approve it
+
+`tracemark review --base <commit>` runs `changes`, then applies fixed rules and gives a recommendation. It is built for code from AI agents, and for any change too large to read line by line.
+
+| Rule | Severity | Flags |
+| --- | --- | --- |
+| `removed-still-called` | blocker | A removed function, method or class is still called, and the call now links to nothing. |
+| `syntax-errors-added` | high | A changed file has more parser errors than before. |
+| `signature-callers-untouched` | high | A signature changed and some callers are in files the change did not touch. |
+| `wide-impact` | medium | A changed function has 10 or more callers within `--depth`. |
+| `no-test-calls` | info | A new or changed function is not called by name from any test. |
+| `not-analysed` | info | A changed file Tracemark cannot read. |
+
+The recommendation follows from the most severe finding:
+
+| Most severe finding | Recommendation |
+| --- | --- |
+| blocker | Request changes |
+| high | Review carefully before approving |
+| medium | Approve after checking the listed items |
+| info, or none | No rule flagged a risk |
+
+Every finding lists the call sites behind it, each with its evidence class.
+
+It is structure only. Tracemark does not run, build or test the code, and no AI is involved. "No rule flagged a risk" is not a statement that the change is correct, and the output says so every time.
+
+- `--markdown` prints a pull-request comment, `--json` the full data.
+- `--fail-on blocker|high|medium` exits with code 3 when such a finding exists, for CI.
+
+### On every pull request
+
+Add `.github/workflows/tracemark.yml` to any repository:
+
+    on: pull_request
+    permissions:
+      contents: read
+      pull-requests: write
+    jobs:
+      review:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+            with:
+              fetch-depth: 2
+          - uses: Gabions256/tracemark@v0.3.0
+            with:
+              fail-on: blocker
+
+The action downloads the release binary and checks its SHA-256. It posts one comment and updates that comment on each push, and writes the review to the job summary. Pull requests from forks get a read-only token, so they get the job summary but no comment. Linux, macOS and Windows runners work.
 
 ## What each language adapter can establish
 

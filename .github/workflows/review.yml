@@ -1,0 +1,29 @@
+name: review
+# Tracemark reviews its own pull requests, using the code in the pull request.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tracemark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Build tracemark from this pull request
+        run: |
+          cargo build --release --locked -p tracemark-cli
+          echo "$GITHUB_WORKSPACE/target/release" >> "$GITHUB_PATH"
+      - uses: ./
+        with:
+          install: "false"

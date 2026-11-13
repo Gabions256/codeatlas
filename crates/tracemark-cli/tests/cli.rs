@@ -42,3 +42,54 @@ fn query_without_an_index_says_to_scan() {
     assert_eq!(out.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&out.stderr).contains("run `tracemark scan` first"));
 }
+
+#[test]
+fn review_fail_on_sets_the_exit_code() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-review");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let git = |args: &[&str]| {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@localhost",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    fs::write(
+        root.join("a.ts"),
+        "export function gone() {}\nfunction main() { gone(); }\n",
+    )
+    .unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+    fs::write(root.join("a.ts"), "function main() { gone(); }\n").unwrap();
+
+    let run = |fail_on: &str| {
+        Command::new(env!("CARGO_BIN_EXE_tracemark"))
+            .args(["review", "--fail-on", fail_on, "--project"])
+            .arg(&root)
+            .output()
+            .unwrap()
+    };
+    let blocked = run("blocker");
+    assert_eq!(blocked.status.code(), Some(3));
+    let stdout = String::from_utf8_lossy(&blocked.stdout);
+    assert!(
+        stdout.starts_with("Recommendation: Request changes"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("removed-still-called"));
+    assert_eq!(run("never").status.code(), Some(0));
+}
