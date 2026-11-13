@@ -1,32 +1,32 @@
 name: Tracemark review
-description: Review a pull request's structural changes with Tracemark and post the findings and a recommendation as one comment.
+description: 'Review a pull request''s structural changes with Tracemark and post the findings and a recommendation as one comment.'
 branding:
   icon: git-pull-request
   color: blue
 
 inputs:
   version:
-    description: Tracemark release to download, without the leading v.
+    description: 'Tracemark release to download, without the leading v.'
     default: "0.3.0"
   install:
-    description: Download Tracemark. Set to "false" when `tracemark` is already on PATH.
+    description: 'Download Tracemark. Set to "false" when `tracemark` is already on PATH.'
     default: "true"
   depth:
-    description: Caller hops to follow from each changed symbol.
+    description: 'Caller hops to follow from each changed symbol.'
     default: "2"
   fail-on:
-    description: Fail the job when a finding at or above this severity exists (never, blocker, high, medium).
+    description: 'Fail the job when a finding at or above this severity exists (never, blocker, high, medium).'
     default: "never"
   comment:
-    description: Post or update a pull-request comment with the review.
+    description: 'Post or update a pull-request comment with the review.'
     default: "true"
   token:
-    description: Token used to write the comment. Needs `pull-requests: write`.
+    description: 'Token used to write the comment. Needs `pull-requests: write`.'
     default: ${{ github.token }}
 
 outputs:
   recommendation:
-    description: The recommendation line, for example "Request changes".
+    description: 'The recommendation line, for example "Request changes".'
     value: ${{ steps.review.outputs.recommendation }}
 
 runs:
