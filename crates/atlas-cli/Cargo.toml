@@ -24,9 +24,10 @@ workspace = true
 # downloads the release archive instead of compiling. Names must match the
 # Package step in .github/workflows/release.yml.
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/atlas-v{ version }-{ target }{ archive-suffix }"
+pkg-url = "{ repo }/releases/download/v{ version }/atlas-v{ version }-{ target }.tar.gz"
 bin-dir = "atlas-v{ version }-{ target }/{ bin }{ binary-ext }"
 pkg-fmt = "tgz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/v{ version }/atlas-v{ version }-{ target }.zip"
 pkg-fmt = "zip"

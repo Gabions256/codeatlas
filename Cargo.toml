@@ -8,16 +8,16 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.90"
 repository = "https://github.com/Gabions256/codeatlas"
 
 [workspace.dependencies]
-atlas-domain = { path = "crates/atlas-domain", version = "0.1.0" }
-atlas-parser = { path = "crates/atlas-parser", version = "0.1.0" }
-atlas-index = { path = "crates/atlas-index", version = "0.1.0" }
+atlas-domain = { path = "crates/atlas-domain", version = "0.1.1" }
+atlas-parser = { path = "crates/atlas-parser", version = "0.1.1" }
+atlas-index = { path = "crates/atlas-index", version = "0.1.1" }
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
 rusqlite = { version = "0.42", features = ["bundled"] }

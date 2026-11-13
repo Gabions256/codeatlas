@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atlas-index",
  "clap",
@@ -73,14 +73,14 @@ dependencies = [
 
 [[package]]
 name = "atlas-domain"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "atlas-index"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atlas-domain",
  "atlas-parser",
@@ -92,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "atlas-parser"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "atlas-domain",
  "tree-sitter",

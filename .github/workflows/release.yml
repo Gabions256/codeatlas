@@ -27,8 +27,8 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
-          # Intel Macs. Cross-compiled on the Apple Silicon runner, so the
-          # tests and the smoke test run as arm64, not on this binary.
+          # Intel Macs. Cross-compiled on the Apple Silicon runner: the tests
+          # run as arm64, the smoke test runs this binary under Rosetta.
           - os: macos-latest
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
@@ -49,14 +49,22 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo test --workspace --locked
       - run: cargo build --release --locked -p atlas-cli --target ${{ matrix.target }}
+      # The Intel Mac binary runs under Rosetta on the Apple Silicon runner.
+      - if: matrix.target == 'x86_64-apple-darwin'
+        run: softwareupdate --install-rosetta --agree-to-license
       - name: Smoke test the built binary
-        if: matrix.target != 'x86_64-apple-darwin'
         shell: bash
         run: |
           atlas="target/${{ matrix.target }}/release/atlas"
-          "$atlas" --version
-          "$atlas" scan fixtures/typescript/sample
-          "$atlas" --project fixtures/typescript/sample report --format html | grep -q "CodeAtlas report"
+          if [ "${{ matrix.target }}" = "x86_64-apple-darwin" ]; then
+            file "$atlas" | grep -q x86_64
+            atlas_run() { arch -x86_64 "$atlas" "$@"; }
+          else
+            atlas_run() { "$atlas" "$@"; }
+          fi
+          atlas_run --version
+          atlas_run scan fixtures/typescript/sample
+          atlas_run --project fixtures/typescript/sample report --format html | grep -q "CodeAtlas report"
       - name: Package
         shell: bash
         run: |
