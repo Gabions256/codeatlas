@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: Gabions256.Tracemark
+PackageVersion: 0.3.0
+PackageLocale: en-US
+Publisher: Gabions256
+PublisherUrl: https://github.com/Gabions256
+PackageName: Tracemark
+PackageUrl: https://github.com/Gabions256/tracemark
+License: Apache-2.0
+LicenseUrl: https://github.com/Gabions256/tracemark/blob/main/LICENSE
+ShortDescription: Local code intelligence. See every symbol, call and import in a project, with the evidence for each.
+Description: Tracemark indexes a project on your own machine and answers questions about its structure from that index. It runs offline, needs no AI provider, and labels every result with how it was established.
+Moniker: tracemark
+Tags:
+  - code-analysis
+  - developer-tools
+  - static-analysis
+  - tree-sitter
+ReleaseNotesUrl: https://github.com/Gabions256/tracemark/releases/tag/v0.3.0
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
