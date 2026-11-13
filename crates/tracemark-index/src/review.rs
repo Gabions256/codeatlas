@@ -89,7 +89,7 @@ pub const RULES: &[Rule] = &[
     Rule {
         id: "no-test-calls",
         severity: Severity::Info,
-        checks: "A new or changed function or method is not called by name from any test file or test function.",
+        checks: "A new or changed function or method outside test code is not called by name from any test file or test function.",
     },
     Rule {
         id: "not-analysed",
@@ -242,7 +242,12 @@ impl Index {
                         ));
                     }
                 }
-                if s.change != Change::Removed && matches!(s.kind.as_str(), "Function" | "Method") {
+                // Test code itself is not expected to be called by tests.
+                let in_tests = is_test_path(&file.path) || is_test_caller(name);
+                if s.change != Change::Removed
+                    && matches!(s.kind.as_str(), "Function" | "Method")
+                    && !in_tests
+                {
                     let simple = name.rsplit('.').next().unwrap_or(name);
                     if self.test_call_sites(simple)?.is_empty() {
                         findings.push(finding(

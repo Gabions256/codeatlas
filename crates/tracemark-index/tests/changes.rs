@@ -345,6 +345,8 @@ fn untested_change_alone_flags_no_risk_but_says_so() {
     let root = repo("review-clean", &[("a.py", "def total(x):\n    return x\n")]);
     write(&root, "a.py", "def total(x):\n    return x + 1\n");
     write(&root, "notes.md", "changed\n");
+    // A helper inside a test file is test code: not flagged.
+    write(&root, "a_test.py", "def helper():\n    return 1\n");
     let review = Index::open(&root).unwrap().review("HEAD", 1).unwrap();
     assert_eq!(review.recommendation, Recommendation::NoRuleFlagged);
     assert!(review.reason.contains("not proof"));

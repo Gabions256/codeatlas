@@ -75,7 +75,7 @@ git is run read-only (`rev-parse`, `diff`, `ls-files`, `cat-file`), never throug
 | `syntax-errors-added` | high | A changed file has more parser errors than before. |
 | `signature-callers-untouched` | high | A signature changed and some callers are in files the change did not touch. |
 | `wide-impact` | medium | A changed function has 10 or more callers within `--depth`. |
-| `no-test-calls` | info | A new or changed function is not called by name from any test. |
+| `no-test-calls` | info | A new or changed function outside test code is not called by name from any test. |
 | `not-analysed` | info | A changed file Tracemark cannot read. |
 
 The recommendation follows from the most severe finding:
