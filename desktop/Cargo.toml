@@ -1,0 +1,27 @@
+# The desktop app is its own workspace, so the core crates and their CI do
+# not depend on Tauri or the system GUI libraries.
+[workspace]
+
+[package]
+name = "tracemark-desktop"
+version = "0.5.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.90"
+repository = "https://github.com/Gabions256/tracemark"
+description = "Tracemark desktop app."
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.8"
+tracemark-index = { path = "../crates/tracemark-index" }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tracemark</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Tracemark</h1>
+    <button id="open" type="button">Open project folder…</button>
+    <span id="project" class="dim">No project open</span>
+  </header>
+
+  <nav role="tablist" aria-label="Views">
+    <button role="tab" id="tab-explore" aria-controls="explore" aria-selected="true" type="button">Explore</button>
+    <button role="tab" id="tab-review" aria-controls="review" aria-selected="false" type="button" tabindex="-1">Review a change</button>
+  </nav>
+
+  <p id="status" role="status" aria-live="polite"></p>
+
+  <main>
+    <section id="explore" role="tabpanel" aria-labelledby="tab-explore">
+      <div class="pane list-pane">
+        <label for="search">Find a symbol</label>
+        <input id="search" type="search" placeholder="Name contains…" autocomplete="off" disabled>
+        <p id="list-note" class="dim"></p>
+        <ul id="symbols" class="symbols" aria-label="Symbols"></ul>
+      </div>
+      <div class="pane detail-pane" id="detail" aria-live="polite">
+        <p class="dim">Open a project, then pick a symbol to see what it calls and what calls it.</p>
+      </div>
+    </section>
+
+    <section id="review" role="tabpanel" aria-labelledby="tab-review" hidden>
+      <form id="review-form" class="review-form">
+        <label for="base">Compare the working tree with commit</label>
+        <input id="base" type="text" value="HEAD" spellcheck="false" disabled>
+        <button id="run-review" type="submit" disabled>Review</button>
+      </form>
+      <div id="review-result" aria-live="polite">
+        <p class="dim">Review lists risky changes found by fixed rules, with the call sites behind each finding. It does not run, build or test the code.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span class="tag ev-Syntax">syntax</span> written in the source ·
+    <span class="tag ev-StaticAnalysis">static analysis</span> matched by a rule ·
+    <span class="tag ev-Inferred">inferred</span> matched by name, not type-checked
+  </footer>
+</body>
+</html>

@@ -1,0 +1,5 @@
+/target
+/gen
+# Generated from icons/source.png by `cargo tauri icon`.
+/icons/*
+!/icons/source.png
