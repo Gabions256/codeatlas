@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: Gabions256.CodeAtlas
+PackageVersion: 0.1.1
+PackageLocale: en-US
+Publisher: Gabions256
+PublisherUrl: https://github.com/Gabions256
+PackageName: CodeAtlas
+PackageUrl: https://github.com/Gabions256/codeatlas
+License: Apache-2.0
+LicenseUrl: https://github.com/Gabions256/codeatlas/blob/main/LICENSE
+ShortDescription: Local code intelligence. See every symbol, call and import in a project, with the evidence for each.
+Description: CodeAtlas indexes a project on your own machine and answers questions about its structure from that index. It runs offline, needs no AI provider, and labels every result with how it was established.
+Moniker: codeatlas
+Tags:
+  - code-analysis
+  - developer-tools
+  - static-analysis
+  - tree-sitter
+ReleaseNotesUrl: https://github.com/Gabions256/codeatlas/releases/tag/v0.1.1
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
