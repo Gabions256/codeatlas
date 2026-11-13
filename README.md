@@ -8,6 +8,9 @@ Status: Milestone 1.5, first public release (0.1.0). A local engine that indexes
 
 Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon and Intel) are attached to each [GitHub release](https://github.com/Gabions256/codeatlas/releases). Download the archive, unpack it and put `atlas` on your `PATH`.
 
+    # macOS and Linux, with Homebrew
+    brew install gabions256/tap/codeatlas
+
     # Any platform with Rust: downloads the release binary
     cargo binstall --git https://github.com/Gabions256/codeatlas atlas-cli
 
@@ -99,7 +102,7 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 - No Rust or Python import resolution. No `require()`, CommonJS exports, re-exports or path aliases.
 - No type references, inheritance, or data flow.
 - No documentation comments.
-- No Homebrew, winget or crates.io packages. Binaries are not code-signed, and there is no Linux ARM or Windows ARM build.
+- No winget or crates.io package yet ([packaging](packaging/README.md) says why). Binaries are not code-signed, and there is no Linux ARM or Windows ARM build.
 - No AI explanations, MCP server or desktop app.
 - No test coverage: nothing says whether changed code is tested.
 
