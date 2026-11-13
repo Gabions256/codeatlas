@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+### New: connector for AI coding agents (MCP)
+
+- `tracemark mcp --project <path>` serves the project to AI coding agents over the Model Context Protocol (JSON-RPC on stdin and stdout). It works with Claude Code, Claude Desktop, Cursor and other MCP clients.
+- Six tools: `tracemark_symbols`, `tracemark_graph`, `tracemark_explain`, `tracemark_changes`, `tracemark_review`, `tracemark_scan`. Query tools rescan changed files first, so answers include the agent's latest edits.
+- Results carry evidence classes. The server's instructions tell agents to treat `Inferred` links as leads to verify.
+- The server answers only for the project it was started with, makes no network calls, and cuts results over 500 items with `truncated: true`.
+- Supported protocol versions: 2025-06-18, 2025-03-26, 2024-11-05.
+- The GitHub Action now downloads 0.4.0 by default.
+
 ## 0.3.0
 
 ### New: review a change before approving it

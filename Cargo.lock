@@ -490,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "tracemark-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "serde",
@@ -500,14 +500,14 @@ dependencies = [
 
 [[package]]
 name = "tracemark-domain"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "tracemark-index"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "ignore",
  "rusqlite",
@@ -519,7 +519,7 @@ dependencies = [
 
 [[package]]
 name = "tracemark-parser"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "tracemark-domain",
  "tree-sitter",
