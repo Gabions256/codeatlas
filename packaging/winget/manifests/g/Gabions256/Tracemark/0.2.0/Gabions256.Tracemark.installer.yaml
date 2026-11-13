@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.9.0.schema.json
+PackageIdentifier: Gabions256.Tracemark
+PackageVersion: 0.2.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: tracemark-v0.2.0-x86_64-pc-windows-msvc\tracemark.exe
+    PortableCommandAlias: tracemark
+ReleaseDate: 2026-11-13
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/Gabions256/tracemark/releases/download/v0.2.0/tracemark-v0.2.0-x86_64-pc-windows-msvc.zip
+    InstallerSha256: D058FB4FB489F93FF7DF509C0D10AA15C8019249D299950BE17D30029003BA4A
+ManifestType: installer
+ManifestVersion: 1.9.0
