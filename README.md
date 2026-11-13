@@ -37,6 +37,7 @@ The binaries are not code-signed. Windows SmartScreen and macOS Gatekeeper may w
     tracemark report --format html > report.html
     tracemark changes --base HEAD --depth 2
     tracemark review --base main
+    tracemark mcp --project .          # for AI coding agents, see below
 
 From a checkout, replace `tracemark` with `cargo run -p tracemark-cli --`. Add `--json` to any command for machine-readable output, and `--project <path>` to query a project from elsewhere.
 
@@ -109,11 +110,41 @@ Add `.github/workflows/tracemark.yml` to any repository:
           - uses: actions/checkout@v4
             with:
               fetch-depth: 2
-          - uses: Gabions256/tracemark@v0.3.0
+          - uses: Gabions256/tracemark@v0.4.0
             with:
               fail-on: blocker
 
 The action downloads the release binary and checks its SHA-256. It posts one comment and updates that comment on each push, and writes the review to the job summary. Pull requests from forks get a read-only token, so they get the job summary but no comment. Linux, macOS and Windows runners work.
+
+## Use from AI coding agents (MCP)
+
+`tracemark mcp --project <path>` runs Tracemark as an [MCP](https://modelcontextprotocol.io) server on stdin and stdout. AI coding agents can then ask it for facts about the project instead of guessing, and check their own edits before calling them done.
+
+Claude Code:
+
+    claude mcp add tracemark -- tracemark mcp --project /path/to/project
+
+Claude Desktop, Cursor and other clients that read an `mcpServers` config:
+
+    {
+      "mcpServers": {
+        "tracemark": { "command": "tracemark", "args": ["mcp", "--project", "/path/to/project"] }
+      }
+    }
+
+| Tool | Answers |
+| --- | --- |
+| `tracemark_symbols` | Where symbols are, with signatures. |
+| `tracemark_graph` | What a symbol calls, or what calls it, with file:line:column. |
+| `tracemark_explain` | The structure of one function and the limits of that evidence. |
+| `tracemark_changes` | What changed since a commit, and what it may affect. |
+| `tracemark_review` | Rule-based findings and a recommendation for the change. |
+| `tracemark_scan` | Re-index and report counts and warnings. |
+
+- **Fresh answers:** every query tool rescans changed files first, so answers include the agent's own latest edits.
+- **Evidence labels:** results carry the same evidence classes as the CLI. The server's instructions tell the agent to treat `Inferred` links as leads to verify.
+- **Scope and privacy:** the server answers only for the project given at start, and it cannot be pointed at other folders. It makes no network calls, and nothing it sees leaves the machine (the agent itself may send its results to its own AI provider).
+- **Large results:** results over 500 items are cut, and say so (`truncated`).
 
 ## What each language adapter can establish
 

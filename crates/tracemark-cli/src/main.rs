@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
+
+mod mcp;
 use tracemark_index::{Direction, Edge, Index, Review, Severity};
 
 #[derive(Parser)]
@@ -72,6 +74,9 @@ enum Command {
         #[arg(long, value_enum, default_value = "never")]
         fail_on: FailOn,
     },
+    /// Serve AI coding agents over MCP (JSON-RPC on stdin and stdout) for
+    /// the project given by --project.
+    Mcp,
     /// Print a project report to stdout.
     Report {
         #[arg(long, value_enum, default_value = "html")]
@@ -197,7 +202,7 @@ fn run(cli: Cli) -> tracemark_index::Result<()> {
     };
     let scans = matches!(
         cli.command,
-        Command::Scan { .. } | Command::Changes { .. } | Command::Review { .. }
+        Command::Scan { .. } | Command::Changes { .. } | Command::Review { .. } | Command::Mcp
     );
     if !scans && !Index::exists(&root) {
         return Err(tracemark_index::Error(format!(
@@ -389,6 +394,7 @@ fn run(cli: Cli) -> tracemark_index::Result<()> {
                 std::process::exit(3);
             }
         }
+        Command::Mcp => mcp::serve(&mut index)?,
         Command::Report { format } => {
             let report = index.report()?;
             match format {
