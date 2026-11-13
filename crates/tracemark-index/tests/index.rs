@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use atlas_domain::Evidence;
-use atlas_index::{render_html, Direction, Edge, Index};
+use tracemark_domain::Evidence;
+use tracemark_index::{render_html, Direction, Edge, Index};
 
 /// Fresh project directory under the cargo test tmpdir.
 fn project(name: &str, files: &[(&str, &[u8])]) -> PathBuf {
@@ -415,7 +415,7 @@ fn index_from_an_older_schema_is_rebuilt() {
     index.scan().unwrap();
     drop(index);
 
-    let db = rusqlite::Connection::open(root.join(".codeatlas/index.db")).unwrap();
+    let db = rusqlite::Connection::open(root.join(".tracemark/index.db")).unwrap();
     db.execute_batch("PRAGMA user_version = 1;").unwrap();
     drop(db);
 
@@ -475,7 +475,7 @@ fn ignore_files_exclude_paths_and_bad_rules_are_reported() {
         "ignore-rules",
         &[
             (".gitignore", b"generated/\n*.gen.ts\n" as &[u8]),
-            (".codeatlasignore", b"vendor/\n!vendor/keep.ts\n"),
+            (".tracemarkignore", b"vendor/\n!vendor/keep.ts\n"),
             ("src/main.ts", b"export function main() {}\n"),
             ("src/api.gen.ts", b"export function generatedApi() {}\n"),
             ("generated/out.ts", b"export function out() {}\n"),
@@ -511,7 +511,7 @@ fn ignore_files_exclude_paths_and_bad_rules_are_reported() {
     assert_eq!(summary.unsupported, 3);
 
     // Un-ignoring a file and rescanning picks it up; ignoring one drops it.
-    fs::write(root.join(".codeatlasignore"), "src/main.ts\n").unwrap();
+    fs::write(root.join(".tracemarkignore"), "src/main.ts\n").unwrap();
     let summary = index.scan().unwrap();
     assert_eq!(summary.removed, 1);
     let mut names: Vec<_> = index
@@ -524,11 +524,11 @@ fn ignore_files_exclude_paths_and_bad_rules_are_reported() {
     assert_eq!(names, ["kept", "top_local", "vendored"]);
 
     // A malformed rule is skipped with a warning, not silently or fatally.
-    fs::write(root.join(".codeatlasignore"), "src/{a\n").unwrap();
+    fs::write(root.join(".tracemarkignore"), "src/{a\n").unwrap();
     let summary = index.scan().unwrap();
     assert_eq!(summary.warnings.len(), 1, "{:?}", summary.warnings);
     assert!(
-        summary.warnings[0].contains(".codeatlasignore"),
+        summary.warnings[0].contains(".tracemarkignore"),
         "{:?}",
         summary.warnings
     );
@@ -538,7 +538,7 @@ fn ignore_files_exclude_paths_and_bad_rules_are_reported() {
 const SECRET: &str = "sk-live-123";
 
 fn db_contains(root: &Path, needle: &str) -> bool {
-    let bytes = fs::read(root.join(".codeatlas/index.db")).unwrap();
+    let bytes = fs::read(root.join(".tracemark/index.db")).unwrap();
     bytes.windows(needle.len()).any(|w| w == needle.as_bytes())
 }
 
@@ -589,7 +589,7 @@ fn secret_stored_by_schema_2_is_wiped_on_upgrade() {
     Index::open(&root).unwrap().scan().unwrap();
 
     // Simulate what version 2 stored: the default value verbatim.
-    let db = rusqlite::Connection::open(root.join(".codeatlas/index.db")).unwrap();
+    let db = rusqlite::Connection::open(root.join(".tracemark/index.db")).unwrap();
     db.execute_batch(
         "UPDATE symbols SET signature = 'def a(key=\"sk-live-123\")'; PRAGMA user_version = 2;",
     )

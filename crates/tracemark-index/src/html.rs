@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use atlas_domain::Evidence;
+use tracemark_domain::Evidence;
 
 use crate::{Edge, Report};
 
@@ -88,8 +88,8 @@ pub fn render(report: &Report) -> String {
     let mut h = format!(
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
-         <title>CodeAtlas report</title><style>{STYLE}</style></head><body>\
-         <h1>CodeAtlas report</h1>\
+         <title>Tracemark report</title><style>{STYLE}</style></head><body>\
+         <h1>Tracemark report</h1>\
          <p class=\"dim\">Project <code>{}</code> · engine {} · generated at unix time {}</p>",
         esc(&report.root),
         report.engine_version,

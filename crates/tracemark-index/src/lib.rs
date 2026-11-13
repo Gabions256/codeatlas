@@ -12,10 +12,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use atlas_domain::{fnv1a_hex, Capabilities, Evidence, FileAnalysis};
-use atlas_parser::LanguageAdapter;
 use rusqlite::{params, Connection, Row, Transaction};
 use serde::Serialize;
+use tracemark_domain::{fnv1a_hex, Capabilities, Evidence, FileAnalysis};
+use tracemark_parser::LanguageAdapter;
 
 pub use changes::{Change, ChangeReport, FileChange, SymbolChange};
 pub use html::render as render_html;
@@ -54,7 +54,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Directories never entered, whatever the ignore files say.
 const SKIP_DIRS: &[&str] = &[
     ".git",
-    ".codeatlas",
+    ".tracemark",
     "node_modules",
     "target",
     "dist",
@@ -64,9 +64,9 @@ const SKIP_DIRS: &[&str] = &[
     "venv",
 ];
 
-const INDEX_DIR: &str = ".codeatlas";
+const INDEX_DIR: &str = ".tracemark";
 /// Project-specific ignore file, same syntax as `.gitignore`.
-pub const IGNORE_FILE: &str = ".codeatlasignore";
+pub const IGNORE_FILE: &str = ".tracemarkignore";
 // 2: export detection and call forms changed, so every file must be reparsed.
 // 3: string defaults are redacted; rebuilding drops secrets stored by 2.
 const SCHEMA_VERSION: i64 = 3;
@@ -293,7 +293,7 @@ impl Index {
         root.join(INDEX_DIR).join("index.db").is_file()
     }
 
-    /// Opens the index under `root/.codeatlas`, creating it if needed.
+    /// Opens the index under `root/.tracemark`, creating it if needed.
     pub fn open(root: &Path) -> Result<Self> {
         if !root.is_dir() {
             return Err(Error(format!("{} is not a directory", root.display())));
@@ -592,7 +592,7 @@ impl Index {
             generated_at_unix: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
-            languages: atlas_parser::adapters()
+            languages: tracemark_parser::adapters()
                 .iter()
                 .map(|a| LanguageInfo {
                     id: a.language_id(),
@@ -683,7 +683,7 @@ struct Discovered {
     skipped: Vec<String>,
 }
 
-/// Walks `root`, honouring `.gitignore` and `.codeatlasignore` files inside
+/// Walks `root`, honouring `.gitignore` and `.tracemarkignore` files inside
 /// it. Ignore files above the root, the global git excludes and
 /// `.git/info/exclude` are not read, so the same tree gives the same index on
 /// every machine. `SKIP_DIRS` are skipped even if an ignore file
@@ -737,7 +737,7 @@ fn discover(root: &Path) -> Result<Discovered> {
         }
         let path = entry.into_path();
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let Some(adapter) = atlas_parser::adapter_for(extension) else {
+        let Some(adapter) = tracemark_parser::adapter_for(extension) else {
             out.unsupported += 1;
             continue;
         };
@@ -1064,7 +1064,7 @@ fn resolve_script_import(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atlas_domain::{ParseStatus, SourceRange, Symbol, SymbolKind};
+    use tracemark_domain::{ParseStatus, SourceRange, Symbol, SymbolKind};
 
     fn file(path: &str, id: &str) -> FileAnalysis {
         let range = SourceRange {

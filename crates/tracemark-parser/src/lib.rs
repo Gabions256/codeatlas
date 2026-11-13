@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use atlas_domain::{
+use tracemark_domain::{
     fnv1a_hex, CallForm, CallSite, Capabilities, Diagnostic, FileAnalysis, Import, ParseStatus,
     SourceRange, Symbol, SymbolKind,
 };

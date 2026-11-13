@@ -1,4 +1,4 @@
-//! End-to-end checks of the `atlas` binary.
+//! End-to-end checks of the `tracemark` binary.
 
 use std::fs;
 use std::path::Path;
@@ -12,7 +12,7 @@ fn changes_outside_a_git_repository_fails_cleanly() {
     fs::create_dir_all(&root).unwrap();
     fs::write(root.join("a.ts"), "function a() {}\n").unwrap();
 
-    let out = Command::new(env!("CARGO_BIN_EXE_atlas"))
+    let out = Command::new(env!("CARGO_BIN_EXE_tracemark"))
         .args(["changes", "--project"])
         .arg(&root)
         // The temp dir sits inside this repository's checkout. Stop git
@@ -34,11 +34,11 @@ fn query_without_an_index_says_to_scan() {
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-no-index");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_atlas"))
+    let out = Command::new(env!("CARGO_BIN_EXE_tracemark"))
         .args(["symbols", "list", "--project"])
         .arg(&root)
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&out.stderr).contains("run `atlas scan` first"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("run `tracemark scan` first"));
 }

@@ -17,7 +17,7 @@ pub struct SourceRange {
 /// How a claim was established. Every reported symbol, import and call
 /// carries one. A weaker class must never be shown as a stronger one.
 ///
-/// Only the first three are produced today: nothing in CodeAtlas runs
+/// Only the first three are produced today: nothing in Tracemark runs
 /// code, reads test results or calls an AI provider yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Evidence {

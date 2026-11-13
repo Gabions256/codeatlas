@@ -62,47 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "atlas-cli"
-version = "0.1.1"
-dependencies = [
- "atlas-index",
- "clap",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "atlas-domain"
-version = "0.1.1"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "atlas-index"
-version = "0.1.1"
-dependencies = [
- "atlas-domain",
- "atlas-parser",
- "ignore",
- "rusqlite",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "atlas-parser"
-version = "0.1.1"
-dependencies = [
- "atlas-domain",
- "tree-sitter",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -527,6 +486,47 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tracemark-cli"
+version = "0.2.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "tracemark-index",
+]
+
+[[package]]
+name = "tracemark-domain"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "tracemark-index"
+version = "0.2.0"
+dependencies = [
+ "ignore",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracemark-domain",
+ "tracemark-parser",
+]
+
+[[package]]
+name = "tracemark-parser"
+version = "0.2.0"
+dependencies = [
+ "tracemark-domain",
+ "tree-sitter",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
 ]
 
 [[package]]

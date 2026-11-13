@@ -1,4 +1,4 @@
-# CodeAtlas
+# Tracemark
 
 Open-source code intelligence for understanding, exploring and verifying software built by humans and AI agents.
 
@@ -6,43 +6,42 @@ Status: Milestone 1.5, first public release (0.1.0). A local engine that indexes
 
 ## Install
 
-Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon and Intel) are attached to each [GitHub release](https://github.com/Gabions256/codeatlas/releases). Download the archive, unpack it and put `atlas` on your `PATH`.
+Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon and Intel) are attached to each [GitHub release](https://github.com/Gabions256/tracemark/releases). Download the archive, unpack it and put `tracemark` on your `PATH`.
 
     # macOS and Linux, with Homebrew
-    brew install gabions256/tap/codeatlas
+    brew install gabions256/tap/tracemark
 
     # Any platform with Rust: downloads the release binary
-    cargo binstall --git https://github.com/Gabions256/codeatlas atlas-cli
+    cargo binstall --git https://github.com/Gabions256/tracemark tracemark-cli
 
     # Any platform with Rust: builds from source (needs a C compiler)
-    cargo install --git https://github.com/Gabions256/codeatlas atlas-cli
+    cargo install --git https://github.com/Gabions256/tracemark tracemark-cli
 
-Each archive has a `.sha256` file next to it. Check it before running the binary, for example `sha256sum -c atlas-v0.1.0-x86_64-unknown-linux-musl.tar.gz.sha256`.
+Each archive has a `.sha256` file next to it. Check it before running the binary, for example `sha256sum -c tracemark-v0.1.0-x86_64-unknown-linux-musl.tar.gz.sha256`.
 
-Each archive also has signed build provenance. With the GitHub CLI, `gh attestation verify <archive> -R Gabions256/codeatlas` confirms it was built by this repository's release workflow.
+Each archive also has signed build provenance. With the GitHub CLI, `gh attestation verify <archive> -R Gabions256/tracemark` confirms it was built by this repository's release workflow.
 
 The Linux binary is statically linked (musl), so it runs on any x86_64 distribution.
 
-The binaries are not code-signed. Windows SmartScreen and macOS Gatekeeper may warn the first time you run `atlas`. On macOS, `xattr -d com.apple.quarantine ./atlas` removes the warning for a binary you downloaded and trust.
+The binaries are not code-signed. Windows SmartScreen and macOS Gatekeeper may warn the first time you run `tracemark`. On macOS, `xattr -d com.apple.quarantine ./tracemark` removes the warning for a binary you downloaded and trust.
 
-The command is called `atlas`. Other tools (for example a database schema tool) also install an `atlas` command; if you have one, the first on your `PATH` wins.
 
 ## Use
 
-    atlas scan ./my-project
+    tracemark scan ./my-project
     cd my-project
-    atlas symbols list
-    atlas graph dependencies
-    atlas graph dependents handleCheckout --depth 2
-    atlas explain function handleCheckout
-    atlas report --format html > report.html
-    atlas changes --base HEAD --depth 2
+    tracemark symbols list
+    tracemark graph dependencies
+    tracemark graph dependents handleCheckout --depth 2
+    tracemark explain function handleCheckout
+    tracemark report --format html > report.html
+    tracemark changes --base HEAD --depth 2
 
-From a checkout, replace `atlas` with `cargo run -p atlas-cli --`. Add `--json` to any command for machine-readable output, and `--project <path>` to query a project from elsewhere.
+From a checkout, replace `tracemark` with `cargo run -p tracemark-cli --`. Add `--json` to any command for machine-readable output, and `--project <path>` to query a project from elsewhere.
 
-`scan` honours `.gitignore` files and a `.codeatlasignore` file (same syntax) anywhere inside the project. Ignore files above the project root, global git excludes and `.git/info/exclude` are not read, so the same tree indexes the same way on every machine. `.git`, `.codeatlas`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv` are always skipped, even if an ignore file re-includes them. A malformed ignore rule is reported as a warning and not applied.
+`scan` honours `.gitignore` files and a `.tracemarkignore` file (same syntax) anywhere inside the project. Ignore files above the project root, global git excludes and `.git/info/exclude` are not read, so the same tree indexes the same way on every machine. `.git`, `.tracemark`, `node_modules`, `target`, `dist`, `build`, `__pycache__`, `.venv` and `venv` are always skipped, even if an ignore file re-includes them. A malformed ignore rule is reported as a warning and not applied.
 
-`scan` writes its index to `<project>/.codeatlas/index.db`. That folder ignores itself in git. A rescan reparses only files whose content changed. Nothing else in the project is touched.
+`scan` writes its index to `<project>/.tracemark/index.db`. That folder ignores itself in git. A rescan reparses only files whose content changed. Nothing else in the project is touched.
 
 A folder or file that cannot be read (for example, no permission) is skipped with a warning, and the summary says the index is incomplete (`skipped` in JSON). An unreadable project root is an error.
 
@@ -50,7 +49,7 @@ String default values in signatures are replaced with `"<redacted>"`, before any
 
 ## What changed, and what it may affect
 
-`atlas changes` compares the working tree with a git commit (`--base`, default `HEAD`). It needs `git` installed and the project inside a git repository. It rescans the index first.
+`tracemark changes` compares the working tree with a git commit (`--base`, default `HEAD`). It needs `git` installed and the project inside a git repository. It rescans the index first.
 
 For each changed file it reports the symbols that were added, removed, had their signature changed, or only their body changed. These come from comparing the source text of the two versions: evidence `Syntax`. New untracked files count as changed; git-ignored files do not.
 
@@ -108,10 +107,10 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 
 ## Crates
 
-- `atlas-domain`: shared types. No internal dependencies.
-- `atlas-parser`: Tree-sitter integration and language adapters.
-- `atlas-index`: the shared engine. Discovery, incremental SQLite index, link resolution, queries, reports.
-- `atlas-cli`: the `atlas` binary. Argument parsing and printing only.
+- `tracemark-domain`: shared types. No internal dependencies.
+- `tracemark-parser`: Tree-sitter integration and language adapters.
+- `tracemark-index`: the shared engine. Discovery, incremental SQLite index, link resolution, queries, reports.
+- `tracemark-cli`: the `tracemark` binary. Argument parsing and printing only.
 
 Design decisions are in [docs/adr](docs/adr).
 
@@ -129,7 +128,7 @@ Minimum supported Rust version (MSRV): 1.90, set by `rust-version` in `Cargo.tom
 
 1. Bump `version` under `[workspace.package]` in `Cargo.toml` and the three internal versions under `[workspace.dependencies]`, and add a `CHANGELOG.md` entry. Merge.
 2. Push a matching tag: `git tag v0.2.0 && git push origin v0.2.0`. A version with a suffix (`0.2.0-rc.1`) becomes a pre-release.
-3. The release workflow tests, builds and smoke-tests `atlas` for Linux x86_64 (static), Windows x86_64, macOS arm64 and macOS x86_64. Only when all four pass does it create a **draft** release with the archives and SHA-256 files.
+3. The release workflow tests, builds and smoke-tests `tracemark` for Linux x86_64 (static), Windows x86_64, macOS arm64 and macOS x86_64. Only when all four pass does it create a **draft** release with the archives and SHA-256 files.
 4. Review the draft on GitHub and publish it by hand.
 
 Pull requests that change `release.yml`, `Cargo.toml` or `Cargo.lock` run the same build as a dry run, without publishing.

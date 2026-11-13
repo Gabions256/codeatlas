@@ -4,8 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use atlas_domain::Evidence;
-use atlas_index::{Change, ChangeReport, Index};
+use tracemark_domain::Evidence;
+use tracemark_index::{Change, ChangeReport, Index};
 
 fn git(root: &Path, args: &[&str]) -> String {
     let out = Command::new("git")

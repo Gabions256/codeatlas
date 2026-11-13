@@ -1,13 +1,13 @@
 [package]
-name = "atlas-index"
+name = "tracemark-index"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-atlas-domain.workspace = true
-atlas-parser.workspace = true
+tracemark-domain.workspace = true
+tracemark-parser.workspace = true
 ignore.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
