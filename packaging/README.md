@@ -16,7 +16,7 @@ The formula lives in [Gabions256/homebrew-tap](https://github.com/Gabions256/hom
 
 `winget/manifests/g/Gabions256/Tracemark/<version>/` follows the layout of [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). Check them with:
 
-    winget validate --manifest packaging/winget/manifests/g/Gabions256/Tracemark/0.3.0
+    winget validate --manifest packaging/winget/manifests/g/Gabions256/Tracemark/0.4.0
 
 To publish, copy the folder into a fork of `microsoft/winget-pkgs` at the same path and open a pull request. The first pull request asks the submitter to accept Microsoft's Contributor License Agreement; only the account owner can do that.
 
