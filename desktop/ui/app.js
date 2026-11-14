@@ -14,25 +14,47 @@ function el(tag, props = {}, ...children) {
     else if (key === "onclick") node.addEventListener("click", value);
     else node.setAttribute(key, value);
   }
-  node.append(...children);
+  node.append(...children.filter((c) => c !== null && c !== undefined && c !== ""));
   return node;
 }
 
-function status(message, isError = false) {
+let busyCount = 0;
+function status(message, kind = "info") {
   const line = $("status");
-  line.textContent = message;
-  line.classList.toggle("error", isError);
+  line.className = `status ${kind}`;
+  line.replaceChildren(kind === "busy" ? el("span", { class: "spinner", "aria-hidden": "true" }) : "", message);
+}
+
+async function busy(message, work) {
+  busyCount += 1;
+  document.body.classList.add("busy");
+  status(message, "busy");
+  try {
+    return await work();
+  } catch (error) {
+    status(String(error), "error");
+    return undefined;
+  } finally {
+    busyCount -= 1;
+    if (!busyCount) document.body.classList.remove("busy");
+  }
 }
 
 const EVIDENCE = { Syntax: "syntax", StaticAnalysis: "static analysis", Inferred: "inferred" };
+const evidenceTag = (e) => el("span", { class: `ev ev-${e}`, title: "Evidence class", text: EVIDENCE[e] || e });
 
-function evidenceTag(evidence) {
-  return el("span", { class: `tag ev-${evidence}`, title: "Evidence class", text: EVIDENCE[evidence] || evidence });
-}
+const KIND = {
+  Function: ["fn", "k-fn"], Method: ["method", "k-fn"], Class: ["class", "k-type"],
+  Struct: ["struct", "k-type"], Interface: ["interface", "k-iface"], Trait: ["trait", "k-iface"],
+  Module: ["module", "k-mod"], Enum: ["enum", "k-type"], TypeAlias: ["type", "k-iface"],
+};
+const kindTag = (kind) => {
+  const [label, cls] = KIND[kind] || [kind, "k-mod"];
+  return el("span", { class: `kind ${cls}`, text: label });
+};
 
-function place(path, line, column) {
-  return [path, line, column].filter((part) => part !== undefined && part !== 0).join(":");
-}
+const place = (path, line, column) =>
+  [path, line, column].filter((part) => part !== undefined && part !== 0).join(":");
 
 // ---- Tabs --------------------------------------------------------------
 
@@ -47,7 +69,7 @@ function selectTab(name) {
 }
 $("tab-explore").addEventListener("click", () => selectTab("explore"));
 $("tab-review").addEventListener("click", () => selectTab("review"));
-document.querySelector("nav").addEventListener("keydown", (event) => {
+$("tabs").addEventListener("keydown", (event) => {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
   const next = $("tab-explore").getAttribute("aria-selected") === "true" ? "review" : "explore";
   selectTab(next);
@@ -56,142 +78,200 @@ document.querySelector("nav").addEventListener("keydown", (event) => {
 
 // ---- Open a project ----------------------------------------------------
 
-$("open").addEventListener("click", async () => {
+function stat(value, label) {
+  return el("span", { class: "stat" }, el("strong", { text: String(value) }), ` ${label}`);
+}
+
+async function openProject() {
   const path = await open({ directory: true, title: "Choose a project folder" });
   if (!path) return;
-  status("Scanning…");
-  try {
-    const summary = await invoke("open_project", { path });
-    $("project").textContent = path;
-    let message = `${summary.files} file(s), ${summary.symbols} symbol(s), ${summary.calls} call site(s), ${summary.calls_inferred} linked by name.`;
-    const problems = summary.warnings.length + summary.skipped.length;
-    if (problems) message += ` ${problems} warning(s): some files were not indexed.`;
-    status(message);
-    for (const id of ["search", "base", "run-review"]) $(id).disabled = false;
-    $("detail").replaceChildren(el("p", { class: "dim", text: "Pick a symbol to see what it calls and what calls it." }));
-    await loadSymbols("");
-  } catch (error) {
-    status(String(error), true);
+  const summary = await busy("Indexing the project…", () => invoke("open_project", { path }));
+  if (!summary) return;
+  $("project").textContent = path;
+  $("project").title = path;
+  $("project-chip").hidden = false;
+  $("welcome").hidden = true;
+  $("tabs").hidden = false;
+  selectTab("explore");
+  $("stats").replaceChildren(
+    stat(summary.files, "files"),
+    stat(summary.symbols, "symbols"),
+    stat(summary.calls, "calls"),
+    stat(summary.calls_inferred, "linked"));
+  const problems = summary.warnings.length + summary.skipped.length;
+  status(problems
+    ? `Indexed, with ${problems} warning(s): some files could not be read and are not in the index.`
+    : `Indexed ${summary.files} file(s). Pick a symbol to explore.`, problems ? "warn" : "ok");
+  showDetailEmpty();
+  await loadSymbols("");
+  $("search").focus();
+}
+$("open").addEventListener("click", openProject);
+$("open-welcome").addEventListener("click", openProject);
+
+document.addEventListener("keydown", (event) => {
+  const mod = event.ctrlKey || event.metaKey;
+  if (mod && event.key.toLowerCase() === "o") { event.preventDefault(); openProject(); }
+  if (mod && event.key.toLowerCase() === "k" && !$("tabs").hidden) {
+    event.preventDefault();
+    selectTab("explore");
+    $("search").focus();
+    $("search").select();
   }
 });
 
 // ---- Symbols -----------------------------------------------------------
 
 let searchTimer;
+let selectedId = null;
 $("search").addEventListener("input", (event) => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadSymbols(event.target.value), 200);
+  searchTimer = setTimeout(() => loadSymbols(event.target.value), 180);
 });
 
 async function loadSymbols(query) {
-  try {
-    const result = await invoke("symbols", { query });
-    const list = $("symbols");
-    list.replaceChildren(
-      ...result.symbols.map((s) =>
-        el("li", {},
-          el("button", { type: "button", onclick: () => showDetail(s.id) },
-            el("span", { class: "kind", text: s.kind }),
-            el("span", { class: "name", text: s.qualified_name }),
-            el("span", { class: "dim loc", text: place(s.path, s.start_line) })))));
-    $("list-note").textContent = result.truncated
-      ? "Showing the first 500. Type to narrow the list."
-      : `${result.symbols.length} symbol(s)`;
-  } catch (error) {
-    status(String(error), true);
+  const result = await busy("Searching…", () => invoke("symbols", { query }));
+  if (!result) return;
+  const list = $("symbols");
+  list.replaceChildren(...result.symbols.map((s) =>
+    el("li", {},
+      el("button", {
+        type: "button",
+        class: s.id === selectedId ? "symbol selected" : "symbol",
+        "data-id": s.id,
+        onclick: () => showDetail(s.id),
+      },
+        kindTag(s.kind),
+        el("span", { class: "symbol-text" },
+          el("span", { class: "symbol-name", text: s.qualified_name }),
+          el("span", { class: "symbol-loc", text: place(s.path, s.start_line) }))))));
+  $("list-note").textContent = result.truncated
+    ? "First 500 shown. Type to narrow."
+    : `${result.symbols.length} symbol${result.symbols.length === 1 ? "" : "s"}`;
+  if (!result.symbols.length) {
+    list.replaceChildren(el("li", { class: "list-empty", text: query ? "No symbol matches." : "No symbols found in this project." }));
   }
+  if (status && $("status").classList.contains("busy")) status("");
 }
 
 // ---- Detail ------------------------------------------------------------
 
+function showDetailEmpty() {
+  $("detail").replaceChildren(el("div", { class: "empty" },
+    el("p", { text: "Pick a symbol on the left." }),
+    el("p", { class: "muted", text: "You will see where it is, its signature, what it calls and what calls it, each with how it is known." })));
+}
+
 function edgeList(edges, outgoing) {
-  if (!edges.length) return el("p", { class: "dim", text: outgoing ? "No calls found in its body." : "No call sites are linked to it." });
-  return el("ul", { class: "edges" },
-    ...edges.map((e) => {
-      const id = outgoing ? e.to_id : e.from_id;
-      const name = outgoing ? e.to : e.from;
-      const target = id
-        ? el("button", { type: "button", class: "link", onclick: () => showDetail(id) }, el("code", { text: name }))
-        : el("code", { text: name });
-      const parts = [target, " "];
-      if (!e.to_id) parts.push(el("span", { class: "tag unresolved", text: e.status }), " ");
-      parts.push(evidenceTag(e.evidence), " ",
-        el("span", { class: "dim", text: `${place(e.path, e.line, e.column)} · ${e.note}` }));
-      return el("li", {}, ...parts);
-    }));
+  if (!edges.length) {
+    return el("p", { class: "muted", text: outgoing ? "No calls found in its body." : "No call sites are linked to it." });
+  }
+  return el("ul", { class: "edges" }, ...edges.map((e) => {
+    const id = outgoing ? e.to_id : e.from_id;
+    const name = outgoing ? e.to : e.from;
+    const target = id
+      ? el("button", { type: "button", class: "link", onclick: () => showDetail(id) }, el("code", { text: name }))
+      : el("code", { class: "plain", text: name });
+    return el("li", { class: "edge" },
+      el("div", { class: "edge-main" },
+        target,
+        !e.to_id ? el("span", { class: "pill muted-pill", text: "unresolved" }) : null,
+        evidenceTag(e.evidence)),
+      el("div", { class: "edge-meta" },
+        el("code", { class: "loc", text: place(e.path, e.line, e.column) }),
+        el("span", { text: e.note })));
+  }));
+}
+
+function section(title, count, body) {
+  return el("section", { class: "card" },
+    el("h3", {}, title, el("span", { class: "count", text: String(count) })),
+    body);
 }
 
 async function showDetail(id) {
-  try {
-    const { symbol, calls, called_by } = await invoke("symbol_detail", { id });
-    const header = el("div", { class: "detail-head" },
-      el("h2", {}, el("code", { text: symbol.qualified_name })),
-      el("span", { class: "tag", text: symbol.kind }), " ",
-      evidenceTag(symbol.evidence));
-    if (symbol.exported === true) header.append(" ", el("span", { class: "tag", text: symbol.language === "rust" ? "pub" : "exported" }));
-    const body = [header, el("p", { class: "dim", text: `${symbol.path}, lines ${symbol.start_line}-${symbol.end_line}` })];
-    if (symbol.signature) body.push(el("pre", { text: symbol.signature }));
-    body.push(el("h3", { text: "Calls" }), edgeList(calls, true),
-      el("h3", { text: "Called from" }), edgeList(called_by, false),
-      el("p", { class: "dim small", text: "Calls are linked by name. Member calls other than this/self, dynamic calls and Rust calls inside macros are not found." }));
-    $("detail").replaceChildren(...body);
-  } catch (error) {
-    status(String(error), true);
+  const detail = await busy("Loading…", () => invoke("symbol_detail", { id }));
+  if (!detail) return;
+  status("");
+  selectedId = id;
+  for (const button of document.querySelectorAll(".symbol")) {
+    button.classList.toggle("selected", button.dataset.id === id);
   }
+  const { symbol, calls, called_by } = detail;
+  const exported = symbol.exported === true
+    ? el("span", { class: "pill", text: symbol.language === "rust" ? "pub" : "exported" })
+    : null;
+  const head = el("div", { class: "detail-head" },
+    el("div", { class: "detail-title" }, kindTag(symbol.kind), el("h2", {}, el("code", { text: symbol.qualified_name }))),
+    el("div", { class: "detail-sub" },
+      el("code", { class: "loc", text: `${symbol.path}  ·  lines ${symbol.start_line}–${symbol.end_line}` }),
+      exported,
+      evidenceTag(symbol.evidence)));
+  const parts = [head];
+  if (symbol.signature) parts.push(el("pre", { class: "signature", text: symbol.signature }));
+  parts.push(
+    section("Calls", calls.length, edgeList(calls, true)),
+    section("Called from", called_by.length, edgeList(called_by, false)),
+    el("p", { class: "footnote", text: "Calls are linked by name. Member calls other than this/self, dynamic calls and Rust calls inside macros are not found, so real usage can be wider." }));
+  $("detail").replaceChildren(...parts);
+  $("detail").scrollTop = 0;
 }
 
 // ---- Review ------------------------------------------------------------
 
 const RECOMMENDATION = {
-  RequestChanges: "Request changes",
-  ReviewCarefully: "Review carefully before approving",
-  ApproveAfterChecks: "Approve after checking the listed items",
-  NoRuleFlagged: "No rule flagged a risk",
+  RequestChanges: ["Request changes", "✕"],
+  ReviewCarefully: ["Review carefully before approving", "!"],
+  ApproveAfterChecks: ["Approve after checking the listed items", "?"],
+  NoRuleFlagged: ["No rule flagged a risk", "✓"],
 };
 
 $("review-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("run-review").disabled = true;
-  status("Reviewing…");
-  try {
-    const review = await invoke("review", { base: $("base").value });
-    renderReview(review);
-    status(`Review done: ${review.findings.length} finding(s).`);
-  } catch (error) {
-    status(String(error), true);
-  } finally {
-    $("run-review").disabled = false;
-  }
+  const review = await busy("Reviewing the change…", () => invoke("review", { base: $("base").value }));
+  $("run-review").disabled = false;
+  if (!review) return;
+  renderReview(review);
+  status(`Review done: ${review.findings.length} finding(s).`, "ok");
 });
 
 function renderReview(review) {
+  const [label, icon] = RECOMMENDATION[review.recommendation] || [review.recommendation, "•"];
+  const counts = {};
+  for (const f of review.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
   const short = review.changes.base_commit.slice(0, 7);
   const parts = [
     el("div", { class: `banner rec-${review.recommendation}` },
-      el("strong", { text: RECOMMENDATION[review.recommendation] || review.recommendation }),
-      el("p", { text: review.reason })),
-    el("p", { class: "dim", text: `Compared with ${review.changes.base} (${short}). ${review.changes.files.length} file(s) changed.` }),
+      el("span", { class: "banner-icon", "aria-hidden": "true", text: icon }),
+      el("div", {},
+        el("strong", { text: label }),
+        el("p", { text: review.reason }),
+        el("div", { class: "sev-counts" },
+          ...["Blocker", "High", "Medium", "Info"].filter((s) => counts[s]).map((s) =>
+            el("span", { class: `pill sev-${s.toLowerCase()}`, text: `${counts[s]} ${s.toLowerCase()}` }))))),
+    el("p", { class: "muted", text: `Compared with ${review.changes.base} (${short}) · ${review.changes.files.length} file(s) changed` }),
   ];
   if (review.findings.length) {
-    parts.push(el("ul", { class: "findings" },
-      ...review.findings.map((f) => {
-        const item = el("li", {},
-          el("span", { class: `tag sev-${f.severity.toLowerCase()}`, text: f.severity.toLowerCase() }), " ",
-          el("code", { text: f.rule }), " ",
-          el("span", { class: "dim", text: place(f.path, f.line) }), " ",
-          f.symbol ? el("code", { text: f.symbol }) : "", " ",
-          evidenceTag(f.evidence),
-          el("p", { text: f.message }));
-        if (f.sites.length) {
-          item.append(el("details", {},
-            el("summary", { text: `${f.sites.length} call site(s)` }),
-            edgeList(f.sites, true)));
-        }
-        return item;
-      })));
+    parts.push(el("ul", { class: "findings" }, ...review.findings.map((f) => {
+      const card = el("li", { class: `finding sev-border-${f.severity.toLowerCase()}` },
+        el("div", { class: "finding-head" },
+          el("span", { class: `pill sev-${f.severity.toLowerCase()}`, text: f.severity.toLowerCase() }),
+          el("code", { class: "rule", text: f.rule }),
+          f.symbol ? el("code", { class: "plain", text: f.symbol }) : null,
+          evidenceTag(f.evidence)),
+        el("p", { text: f.message }),
+        el("code", { class: "loc", text: place(f.path, f.line) }));
+      if (f.sites.length) {
+        card.append(el("details", {},
+          el("summary", { text: `${f.sites.length} call site${f.sites.length === 1 ? "" : "s"}` }),
+          edgeList(f.sites, true)));
+      }
+      return card;
+    })));
   } else {
-    parts.push(el("p", { text: "No findings." }));
+    parts.push(el("div", { class: "empty" }, el("p", { text: "No findings." })));
   }
-  parts.push(el("ul", { class: "limits" }, ...review.limitations.map((l) => el("li", { class: "dim small", text: l }))));
+  parts.push(el("ul", { class: "limits" }, ...review.limitations.map((l) => el("li", { text: l }))));
   $("review-result").replaceChildren(...parts);
 }
