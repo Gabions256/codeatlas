@@ -73,6 +73,9 @@ The agent can then find symbols, follow calls and review its own edits before ca
 
 - Calls are linked by name. A call written as `x.f()` is followed only when `x` is `this` or `self`.
 - Rust calls inside macros (`println!`, `assert!`) are not seen.
+- JSX such as `<Card />` is not a call. A React component used only in JSX shows no callers; that does not mean it is unused.
+- Rust `Type::f()` is matched on `f` alone, so `Vec::new()` can link to an unrelated project `new`.
+- `review` does not check imports: a renamed or deleted file whose importers still use the old path is not flagged.
 - Rust and Python imports are not resolved to files.
 - Renaming a symbol shows as one removed and one added.
 - Supported languages: TypeScript, JavaScript (with JSX/TSX), Rust and Python.

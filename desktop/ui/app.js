@@ -212,7 +212,7 @@ async function showDetail(id) {
   parts.push(
     section("Calls", calls.length, edgeList(calls, true)),
     section("Called from", called_by.length, edgeList(called_by, false)),
-    el("p", { class: "footnote", text: "Calls are linked by name. Member calls other than this/self, dynamic calls and Rust calls inside macros are not found, so real usage can be wider." }));
+    el("p", { class: "footnote", text: "Calls are linked by name. Member calls other than this/self, dynamic calls, JSX such as <Card />, and Rust calls inside macros are not found, so real usage can be wider. Rust Type::f() is matched on f alone." }));
   $("detail").replaceChildren(...parts);
   $("detail").scrollTop = 0;
 }

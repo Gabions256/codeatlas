@@ -85,6 +85,8 @@ const LIMITATIONS: &[&str] = &[
     "A symbol renamed inside a file shows as one removed and one added.",
     "A body change in a method also shows as a body change of its class.",
     "Rust calls inside macros are not seen. Rust and Python imports are not resolved.",
+    "Rust `Type::f()` is matched on `f` alone: `Vec::new()` can link to an unrelated project `new`.",
+    "JSX such as `<Card />` is not read as a call, so a React component used only in JSX shows no callers.",
 ];
 
 impl Index {
@@ -375,7 +377,12 @@ fn git_text(root: &Path, args: &[&str]) -> Result<String> {
 
 /// Runs a read-only git command in `root`. Never through a shell.
 fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    // A windowed app (the desktop) would otherwise open a console window for
+    // every git call. CREATE_NO_WINDOW; output is piped either way.
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+    let output = command
         .arg("-C")
         .arg(root)
         // fsmonitor is a repository setting that can start another program.

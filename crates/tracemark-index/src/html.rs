@@ -106,7 +106,7 @@ pub fn render(report: &Report) -> String {
          <em>inferred</em>: a call matched to a symbol by name. This report contains no \
          runtime, test or AI evidence.\
          <br><strong>Not seen.</strong> <code>x.f()</code> is linked only when the receiver is \
-         <code>this</code> or <code>self</code>. Rust calls inside macros are not seen.</div>",
+         <code>this</code> or <code>self</code>. Rust calls inside macros are not seen. \n         JSX such as <code>&lt;Card /&gt;</code> is not read as a call. Rust <code>Type::f()</code> \n         is matched on <code>f</code> alone.</div>",
     );
 
     h.push_str(
