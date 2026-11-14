@@ -71,7 +71,9 @@ async fn symbol_detail(id: String, state: State<'_, Project>) -> Reply<Detail> {
             .find(&id)?
             .into_iter()
             .find(|s| s.id == id)
-            .ok_or_else(|| tracemark_index::Error("That symbol is no longer in the index.".into()))?;
+            .ok_or_else(|| {
+                tracemark_index::Error("That symbol is no longer in the index.".into())
+            })?;
         let mut calls = index.graph(Some(&id), Direction::Dependencies, 1)?.edges;
         let mut called_by = index.graph(Some(&id), Direction::Dependents, 1)?.edges;
         calls.truncate(MAX_ITEMS);
@@ -87,7 +89,11 @@ async fn symbol_detail(id: String, state: State<'_, Project>) -> Reply<Detail> {
 /// Rule-based review of the working tree against `base`.
 #[tauri::command]
 async fn review(base: String, state: State<'_, Project>) -> Reply<Review> {
-    let base = if base.trim().is_empty() { "HEAD" } else { base.trim() };
+    let base = if base.trim().is_empty() {
+        "HEAD"
+    } else {
+        base.trim()
+    };
     with_index(&state, |index| index.review(base, 2))
 }
 

@@ -6,7 +6,12 @@ all-features = true
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+    # proc-macro-error is unmaintained. It reaches us only through the GTK 3
+    # bindings Tauri uses on Linux, and is a build-time macro helper, not code
+    # that runs in the app. Revisit when Tauri moves off GTK 3.
+    { id = "RUSTSEC-2024-0370", reason = "build-time macro helper pulled in by Tauri's GTK 3 bindings; no maintained replacement upstream" },
+]
 
 [licenses]
 # Licences compatible with distributing Tracemark under Apache-2.0.
