@@ -178,7 +178,7 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 - Every call site and import is reported with its file, line and column. That position is the evidence.
 - A call is `Inferred` when exactly one project function or method has that name (same file first, then the whole project). It is a name match. It was not type-checked or observed.
 - A call is `Unresolved` when no name or several names match. The note says which. Library calls, built-ins and dynamic calls land here.
-- `f()` is matched to functions, `new X()` to classes, and Rust `a::f()` to functions or methods.
+- `f()` is matched to functions, `new X()` to classes, and Rust `a::f()` to functions or methods by the name `f` only (`a` is not checked).
 - `this.f()` and `self.f()` are matched to methods. Any other `x.f()` is never linked, because the type of `x` is unknown: `console.log()` must not link to a project method called `log`. The note gives the number of methods with that name.
 - Every symbol, import and call carries an evidence class in JSON (`evidence`) and in the HTML report:
   - `Syntax`: written in the source at that position. All symbols, unresolved imports, unresolved calls.
@@ -194,12 +194,15 @@ All adapters are syntax-only (Tree-sitter). None type-checks or runs code.
 ## Not done yet
 
 - Rust calls written inside macros (`println!("{}", f())`, `assert!(g())`) are not seen at all: macro arguments are not parsed as code.
+- JSX is not read as a call: `<Card />` does not link to the component `Card`. A React component used only in JSX shows no callers, which does not mean it is unused.
+- Rust `Type::f()` is matched on the name `f` alone; `Type` is not checked. `Vec::new()` or `HashMap::new()` can link to an unrelated project function or method called `new` when it is the only one.
+- `review` does not check imports: renaming or deleting a file whose importers still use the old path is not flagged.
 - Python `K()` is not linked to class `K`: it stays `Unresolved`. Generic Rust calls `f::<T>()` and computed callees are not recorded.
 - No Rust or Python import resolution. No `require()`, CommonJS exports, re-exports or path aliases.
 - No type references, inheritance, or data flow.
 - No documentation comments.
 - No winget or crates.io package yet ([packaging](packaging/README.md) says why). Binaries are not code-signed, and there is no Linux ARM or Windows ARM build.
-- No AI explanations, MCP server or desktop app.
+- No AI explanations.
 - No test coverage: nothing says whether changed code is tested.
 
 ## Crates

@@ -266,6 +266,8 @@ const LIMITATIONS: &[&str] = &[
     "`Unresolved` calls may target libraries, built-ins, or code reached dynamically.",
     "`x.f()` is linked only when the receiver is `this` or `self`. Other member calls stay `Unresolved`.",
     "Rust calls written inside macros (`println!`, `assert!`, ...) are not seen at all.",
+    "Rust `Type::f()` is matched on `f` alone: `Vec::new()` can link to an unrelated project `new`.",
+    "JSX such as `<Card />` is not read as a call, so a React component used only in JSX shows no callers.",
     "Python `K()` is not linked to class `K`: constructor calls stay `Unresolved`.",
     "String default values in signatures are shown as \"<redacted>\". Other defaults are shown as written.",
     "Callers that use dynamic dispatch, reflection or string lookups are not found.",
@@ -289,6 +291,17 @@ pub struct Index {
     root: PathBuf,
 }
 
+/// Opens the database file and reads its schema version.
+fn connect(path: &Path) -> rusqlite::Result<(Connection, i64)> {
+    let conn = Connection::open(path)?;
+    // secure_delete overwrites deleted rows, so a value removed from the
+    // index (such as a secret stored by an older version) does not stay
+    // readable in free pages of the database file.
+    conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;")?;
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    Ok((conn, version))
+}
+
 impl Index {
     /// True if `root` has been scanned before.
     pub fn exists(root: &Path) -> bool {
@@ -307,12 +320,21 @@ impl Index {
         if !ignore.exists() {
             std::fs::write(ignore, "*\n")?;
         }
-        let conn = Connection::open(dir.join("index.db"))?;
-        // secure_delete overwrites deleted rows, so a value removed from the
-        // index (such as a secret stored by an older version) does not stay
-        // readable in free pages of the database file.
-        conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA secure_delete = ON;")?;
-        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let path = dir.join("index.db");
+        let (conn, version) = match connect(&path) {
+            // The index is a rebuildable cache: a damaged file is replaced,
+            // not repaired. A locked or unreadable file is still an error.
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if matches!(
+                    e.code,
+                    rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt
+                ) =>
+            {
+                std::fs::remove_file(&path)?;
+                connect(&path)?
+            }
+            other => other?,
+        };
         if version != SCHEMA_VERSION {
             // shortcut: the index is a rebuildable cache, so a schema change
             // drops it instead of migrating. Add real migrations once the

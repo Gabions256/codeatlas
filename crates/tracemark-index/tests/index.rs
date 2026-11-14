@@ -698,3 +698,16 @@ fn python_class_call_stays_unresolved() {
     assert_eq!(links(&edges), [("make", "K", "Unresolved")]);
     assert_eq!(edges[0].to_id, None);
 }
+
+#[test]
+fn corrupt_index_file_is_rebuilt() {
+    let root = project(
+        "corrupt-index",
+        &[("a.ts", b"export function a() { b(); }\nfunction b() {}\n")],
+    );
+    Index::open(&root).unwrap().scan().unwrap();
+    // Not an SQLite file: what a crash, disk error or bad copy can leave.
+    fs::write(root.join(".tracemark/index.db"), [0x5au8; 4096]).unwrap();
+    let summary = Index::open(&root).unwrap().scan().unwrap();
+    assert_eq!((summary.files, summary.symbols), (1, 2));
+}

@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A damaged index file (`file is not a database`) is now replaced and rebuilt on the next scan instead of making every command fail. The index is a cache, so nothing is lost.
+- Windows desktop app: reviewing a change no longer flashes a console window for each git command.
+- Review action: it now updates only its own comment. Before, it rewrote any comment that began with its marker, so a participant's comment could be replaced by the review and shown under their name.
+- The library crates now carry a description and repository link, which crates.io requires.
+
+### Documented limits
+
+- JSX such as `<Card />` is not read as a call. A React component used only in JSX shows no callers; that does not mean it is unused.
+- Rust `Type::f()` is matched on `f` alone, so `Vec::new()` can link to an unrelated project `new`.
+- `review` does not check imports, so a renamed or deleted file whose importers still use the old path is not flagged.
+- The README no longer says there is no MCP server or desktop app.
+
 ## 0.5.0
 
 ### New: desktop app

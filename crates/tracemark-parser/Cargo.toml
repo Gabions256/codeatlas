@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+description = "Tree-sitter adapters for Tracemark: symbols, calls and imports from TypeScript, JavaScript, Rust and Python source."
 
 [dependencies]
 tracemark-domain.workspace = true

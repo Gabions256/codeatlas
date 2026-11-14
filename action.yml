@@ -93,8 +93,12 @@ runs:
         marker='<!-- tracemark-review -->'
         body="$RUNNER_TEMP/tracemark-comment.md"
         { echo "$marker"; cat "$RUNNER_TEMP/tracemark-review.md"; } > "$body"
+        # Only our own comment: anyone can post a comment starting with the
+        # marker, and editing theirs would put the review under their name.
+        # GITHUB_TOKEN cannot call /user; it always posts as github-actions[bot].
+        me=$(gh api user --jq .login 2>/dev/null) || me='github-actions[bot]'
         id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
-          --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | tail -1) || id=""
+          --jq ".[] | select(.user.login == \"$me\" and (.body | startswith(\"$marker\"))) | .id" | tail -1) || id=""
         # A pull request from a fork gets a read-only token: report, don't fail.
         if [ -n "$id" ]; then
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$body" >/dev/null \

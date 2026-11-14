@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+repository.workspace = true
+description = "The Tracemark engine: project discovery, SQLite index, call linking, change review and reports."
 
 [dependencies]
 tracemark-domain.workspace = true

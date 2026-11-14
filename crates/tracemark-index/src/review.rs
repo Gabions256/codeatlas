@@ -127,6 +127,9 @@ const LIMITATIONS: &[&str] = &[
     "Structure only: Tracemark did not run, build or test this code. A recommendation is what these rules found, not proof the change is correct.",
     "Callers are linked by name. Member calls other than this/self, dynamic calls and Rust calls inside macros are not seen, so impact can be larger than shown.",
     "`no-test-calls` looks for direct calls by name from test files. A function tested indirectly is still listed.",
+    "Imports are not checked: a renamed or deleted file whose importers still use the old path is not flagged.",
+    "JSX such as `<Card />` is not read as a call, so a React component used only in JSX shows no callers.",
+    "Rust `Type::f()` is matched on `f` alone: `Vec::new()` can link to an unrelated project `new`.",
 ];
 
 /// Most findings list their call sites; cap them to keep output readable.
