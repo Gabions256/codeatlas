@@ -5,7 +5,7 @@ on:
   # Dry run on pull requests that touch the release: build, test and package
   # every target, publish nothing.
   pull_request:
-    paths: [".github/workflows/release.yml", "Cargo.toml", "Cargo.lock"]
+    paths: [".github/workflows/release.yml", "Cargo.toml", "Cargo.lock", "desktop/Cargo.toml", "desktop/tauri.conf.json"]
 
 permissions:
   contents: read
@@ -89,10 +89,77 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  desktop:
+    name: desktop (${{ matrix.slug }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            slug: linux-x86_64
+            bundles: appimage,deb
+          - os: windows-latest
+            slug: windows-x86_64
+            bundles: nsis
+          - os: macos-latest
+            slug: macos-arm64
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Read version, check it matches the tag and the app config
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' ../Cargo.toml)
+          app=$(sed -n '/^\[package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          conf=$(sed -n 's/^  "version": "\(.*\)",/\1/p' tauri.conf.json)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$app" != "$version" ] || [ "$conf" != "$version" ]; then
+            echo "::error::desktop version $app / tauri.conf.json $conf must equal $version"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match version ${version}"
+            exit 1
+          fi
+      - name: System libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: desktop
+          key: desktop-release
+      - run: cargo install tauri-cli --version "~2.12" --locked
+      - run: cargo tauri icon icons/source.png
+      - run: cargo tauri build --bundles ${{ matrix.bundles }} -- --locked
+      - name: Package
+        run: |
+          shopt -s nullglob
+          mkdir -p ../dist
+          for f in target/release/bundle/*/*.AppImage target/release/bundle/*/*.deb target/release/bundle/*/*.exe target/release/bundle/*/*.dmg; do
+            name="tracemark-desktop-v${VERSION}-${{ matrix.slug }}.${f##*.}"
+            cp "$f" "../dist/$name"
+            if command -v sha256sum >/dev/null; then (cd ../dist && sha256sum "$name" > "$name.sha256")
+            else (cd ../dist && shasum -a 256 "$name" > "$name.sha256"); fi
+          done
+          ls ../dist
+          test -n "$(ls ../dist)"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-${{ matrix.slug }}
+          path: dist/
+          if-no-files-found: error
+
   # Runs only for a tag, and only after every target built and passed.
   publish:
     if: github.ref_type == 'tag'
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,6 +177,10 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.deb
       - name: Create draft release with all assets
         env:
           GH_TOKEN: ${{ github.token }}
