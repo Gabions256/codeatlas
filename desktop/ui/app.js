@@ -176,7 +176,7 @@ function renderReview(review) {
     parts.push(el("ul", { class: "findings" },
       ...review.findings.map((f) => {
         const item = el("li", {},
-          el("span", { class: `tag sev-${f.severity}`, text: f.severity }), " ",
+          el("span", { class: `tag sev-${f.severity.toLowerCase()}`, text: f.severity.toLowerCase() }), " ",
           el("code", { text: f.rule }), " ",
           el("span", { class: "dim", text: place(f.path, f.line) }), " ",
           f.symbol ? el("code", { text: f.symbol }) : "", " ",
