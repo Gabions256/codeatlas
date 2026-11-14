@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+### New: desktop app
+
+- Tracemark for Windows, macOS (Apple Silicon) and Linux. The installers are attached to the release as `tracemark-desktop-v0.5.0-*`, each with a SHA-256 file and signed build provenance.
+- **Explore:** open a project folder, search symbols, and see each symbol's signature, calls and callers with evidence labels. Click a name to follow the chain.
+- **Review a change:** the same rule-based review as `tracemark review`, with the recommendation, findings and call sites.
+- The app runs the same engine locally. Its only permission beyond its own commands is the folder picker, and a strict content-security policy applies.
+- The installers are not code-signed yet. The README explains the Windows and macOS warnings.
+
+### Docs
+
+- New [quick guide](docs/guide.md) for first-time users.
+
 ## 0.4.0
 
 ### New: connector for AI coding agents (MCP)

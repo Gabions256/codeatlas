@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tracemark</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+        <rect width="64" height="64" rx="14" fill="#111827"/>
+        <path d="M19 21 L45 21 M19 21 L32 45 M45 21 L32 45" stroke="#4fb3d1" stroke-width="3" fill="none"/>
+        <circle cx="19" cy="21" r="5.5" fill="#e6ecf0"/>
+        <circle cx="45" cy="21" r="5.5" fill="#e6ecf0"/>
+        <circle cx="32" cy="45" r="5.5" fill="#e6ecf0"/>
+        <circle cx="32" cy="45" r="2.8" fill="#ffb84d"/>
+      </svg>
+      <span class="brand-name">Tracemark</span>
+    </div>
+    <div class="project-chip" id="project-chip" hidden>
+      <span class="dot" aria-hidden="true"></span>
+      <span id="project" class="project-path"></span>
+    </div>
+    <div class="spacer"></div>
+    <button id="open" class="btn primary" type="button" title="Open project folder (Ctrl+O)">Open folder…</button>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Views" hidden id="tabs">
+    <button role="tab" id="tab-explore" aria-controls="explore" aria-selected="true" type="button">Explore</button>
+    <button role="tab" id="tab-review" aria-controls="review" aria-selected="false" type="button" tabindex="-1">Review a change</button>
+    <div class="spacer"></div>
+    <div id="stats" class="stats" aria-label="Project summary"></div>
+  </nav>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+
+  <main>
+    <section id="welcome" class="welcome">
+      <div class="welcome-card">
+        <svg class="welcome-logo" viewBox="0 0 64 64" aria-hidden="true">
+          <rect width="64" height="64" rx="14" fill="#111827"/>
+          <path d="M19 21 L45 21 M19 21 L32 45 M45 21 L32 45" stroke="#4fb3d1" stroke-width="3" fill="none"/>
+          <circle cx="19" cy="21" r="5.5" fill="#e6ecf0"/>
+          <circle cx="45" cy="21" r="5.5" fill="#e6ecf0"/>
+          <circle cx="32" cy="45" r="5.5" fill="#e6ecf0"/>
+          <circle cx="32" cy="45" r="2.8" fill="#ffb84d"/>
+        </svg>
+        <h1>Understand every line. See every connection. Trust every change.</h1>
+        <p class="lead">Tracemark maps a project on your own computer and tells you how sure it is about each fact. Nothing is uploaded.</p>
+        <ol class="steps">
+          <li><strong>Open a project folder.</strong> Indexing takes seconds.</li>
+          <li><strong>Explore.</strong> Find any function or class, see what it calls and what calls it.</li>
+          <li><strong>Review a change.</strong> Before you approve an edit, see what it may break, with the evidence.</li>
+        </ol>
+        <button id="open-welcome" class="btn primary large" type="button">Open project folder…</button>
+        <p class="hint">Shortcut: <kbd>Ctrl</kbd> <kbd>O</kbd></p>
+      </div>
+    </section>
+
+    <section id="explore" role="tabpanel" aria-labelledby="tab-explore" hidden>
+      <aside class="sidebar">
+        <div class="search">
+          <label for="search" class="visually-hidden">Find a symbol</label>
+          <input id="search" type="search" placeholder="Find a symbol…  (Ctrl+K)" autocomplete="off" spellcheck="false">
+        </div>
+        <p id="list-note" class="list-note"></p>
+        <ul id="symbols" class="symbols" aria-label="Symbols"></ul>
+      </aside>
+      <div class="detail" id="detail" aria-live="polite"></div>
+    </section>
+
+    <section id="review" role="tabpanel" aria-labelledby="tab-review" hidden>
+      <div class="review-inner">
+        <form id="review-form" class="review-form card">
+          <div class="field">
+            <label for="base">Compare the working tree with</label>
+            <input id="base" type="text" value="HEAD" spellcheck="false">
+          </div>
+          <button id="run-review" class="btn primary" type="submit">Review change</button>
+          <p class="hint">Use <code>HEAD</code> for your last commit, or a branch such as <code>main</code>.</p>
+        </form>
+        <div id="review-result" aria-live="polite">
+          <div class="empty">
+            <p>Review checks the change with fixed rules and lists each risk with the exact call sites behind it.</p>
+            <p class="muted">It does not run, build or test the code, and no AI is involved.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="legend">
+    <span class="ev ev-Syntax">syntax</span><span>written in the source</span>
+    <span class="ev ev-StaticAnalysis">static analysis</span><span>matched by a rule</span>
+    <span class="ev ev-Inferred">inferred</span><span>matched by name, not type-checked</span>
+  </footer>
+</body>
+</html>

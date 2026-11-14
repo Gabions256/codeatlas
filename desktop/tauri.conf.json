@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Tracemark",
+  "version": "0.5.0",
+  "identifier": "com.gabions256.tracemark",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Tracemark",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 500
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg", "appimage", "deb"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "license": "Apache-2.0",
+    "category": "DeveloperTool",
+    "shortDescription": "See every symbol, call and change in a project, with the evidence for each.",
+    "longDescription": "Tracemark indexes a project on your own machine. Browse its symbols and calls, and review changes with fixed rules before you approve them. Every result says how it is known. Nothing is uploaded."
+  }
+}

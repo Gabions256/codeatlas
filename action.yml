@@ -7,7 +7,7 @@ branding:
 inputs:
   version:
     description: 'Tracemark release to download, without the leading v.'
-    default: "0.4.0"
+    default: "0.5.0"
   install:
     description: 'Download Tracemark. Set to "false" when `tracemark` is already on PATH.'
     default: "true"

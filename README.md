@@ -2,11 +2,26 @@
 
 Open-source code intelligence for understanding, exploring and verifying software built by humans and AI agents.
 
-Status: Milestone 1.5, first public release (0.1.0). A local engine that indexes a project, links calls and imports, and answers questions from that index. No AI, no network, no desktop app yet.
+Status: 0.5.0. A local engine that indexes a project, links calls and imports, and reviews changes. It comes as a desktop app, a command-line tool (`tracemark`), a GitHub pull-request bot and a connector for AI coding agents. No AI inside, no network, no upload.
+
+New here? Read the **[quick guide](docs/guide.md)**.
 
 ## Install
 
-Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon and Intel) are attached to each [GitHub release](https://github.com/Gabions256/tracemark/releases). Download the archive, unpack it and put `tracemark` on your `PATH`.
+**Desktop app:** download the installer for your system from the [latest release](https://github.com/Gabions256/tracemark/releases/latest):
+
+| System | File |
+| --- | --- |
+| Windows | `tracemark-desktop-v<version>-windows-x86_64.exe` |
+| macOS (Apple Silicon) | `tracemark-desktop-v<version>-macos-arm64.dmg` |
+| Linux | `tracemark-desktop-v<version>-linux-x86_64.AppImage`, or `.deb` |
+
+The installers are not code-signed yet:
+- **Windows:** SmartScreen shows "Windows protected your PC". Choose **More info**, then **Run anyway**.
+- **macOS:** the app may be reported as "damaged". Run `xattr -cr /Applications/Tracemark.app` once.
+- **Linux:** the Linux build needs WebKitGTK 4.1, which Ubuntu 22.04 and later include.
+
+**Command-line tool:** prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon and Intel) are attached to each [GitHub release](https://github.com/Gabions256/tracemark/releases). Download the archive, unpack it and put `tracemark` on your `PATH`.
 
     # macOS and Linux, with Homebrew
     brew install gabions256/tap/tracemark
@@ -110,7 +125,7 @@ Add `.github/workflows/tracemark.yml` to any repository:
           - uses: actions/checkout@v4
             with:
               fetch-depth: 2
-          - uses: Gabions256/tracemark@v0.4.0
+          - uses: Gabions256/tracemark@v0.5.0
             with:
               fail-on: blocker
 
